@@ -1,11 +1,26 @@
 import { useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 import { t, tf } from '../data/strings.js';
 import { formatTime, formatTimeTa } from '../utils/formatters.js';
 import { playSuccessChime } from '../utils/speechUtils.js';
 import { speakImperative } from '../hooks/useTTS.js';
 
-export default function SuccessAnimation({ schemeName, elapsedSeconds, lang, onDone }) {
+/**
+ * SuccessAnimation.
+ *
+ * Was a full-screen flood of #1B5E20. A success state does not need to shout,
+ * and a saturated green wash is exactly the "you have been processed" register
+ * this product is trying to get away from — the moment should feel like someone
+ * nodding, not a machine stamping a form.
+ *
+ * So: the light canvas, a warm bloom (the reveal temperature — the answer has
+ * arrived), and the check drawn in ink. The chime and the drawn stroke are the
+ * whole celebration; both survive intact.
+ */
+export default function SuccessAnimation({ schemeName, elapsedSeconds, lang = 'en', onDone }) {
+  const reduce = useReducedMotion();
+  const ta = lang === 'ta';
+
   useEffect(() => {
     playSuccessChime();
     const msg = t('apply_success', lang);
@@ -15,65 +30,72 @@ export default function SuccessAnimation({ schemeName, elapsedSeconds, lang, onD
     return () => clearTimeout(timer);
   }, [lang, onDone]);
 
-  const timeLabel = lang === 'ta' ? formatTimeTa(elapsedSeconds) : formatTime(elapsedSeconds);
+  const timeLabel = ta ? formatTimeTa(elapsedSeconds) : formatTime(elapsedSeconds);
+
+  const rise = (d = 0) => ({
+    initial: reduce ? false : { opacity: 0, y: 12 },
+    animate: { opacity: 1, y: 0 },
+    transition: { duration: 0.32, delay: d, ease: [0.22, 1, 0.36, 1] },
+  });
 
   return (
     <motion.div
-      initial={{ backgroundColor: '#FAFAF5' }}
-      animate={{ backgroundColor: '#1B5E20' }}
-      transition={{ duration: 0.5 }}
-      className="fixed inset-0 z-50 flex flex-col items-center justify-center text-white text-center px-6"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.24 }}
+      className="fixed inset-0 z-50 bg-canvas overflow-hidden"
+      role="status"
+      aria-live="polite"
     >
-      {/* Animated SVG check */}
-      <motion.div
-        initial={{ scale: 0.2, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        transition={{ delay: 0.2, type: 'spring', stiffness: 220, damping: 18 }}
-        className="w-32 h-32 rounded-full bg-white/15 flex items-center justify-center mb-8"
-      >
-        <svg viewBox="0 0 50 50" width="84" height="84">
-          <circle cx="25" cy="25" r="22" fill="none" stroke="white" strokeWidth="2.5" opacity="0.5" />
-          <path
-            d="M14 26 L22 34 L36 18"
-            fill="none"
-            stroke="white"
-            strokeWidth="4"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="check-draw"
-            style={{ animationDelay: '0.5s' }}
-          />
-        </svg>
-      </motion.div>
+      <div className="bloom bloom-warm" aria-hidden="true" />
 
-      <motion.h2
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.9 }}
-        className="text-2xl font-bold max-w-md leading-snug"
-      >
-        {t('apply_success', lang)}
-      </motion.h2>
-
-      {schemeName && (
+      <div className="relative z-10 h-full flex flex-col items-center justify-center px-6 text-center">
+        {/* The drawn check. One stroke, ink, on a white plate. */}
         <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 1.2 }}
-          className="mt-3 text-base opacity-90"
+          initial={reduce ? false : { scale: 0.86, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
+          className="w-[104px] h-[104px] rounded-full bg-surface shadow-e2 grid place-items-center"
+          style={{ boxShadow: 'inset 0 0 0 1px var(--hairline), 0 8px 24px -12px rgba(20,19,26,.10)' }}
         >
-          {schemeName}
+          <svg viewBox="0 0 50 50" width="56" height="56" aria-hidden="true">
+            <motion.path
+              d="M13 26 L21.5 34.5 L37 17"
+              fill="none"
+              stroke="var(--ink)"
+              strokeWidth="3.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              initial={reduce ? false : { pathLength: 0 }}
+              animate={{ pathLength: 1 }}
+              transition={{ duration: 0.42, delay: reduce ? 0 : 0.18, ease: [0.22, 1, 0.36, 1] }}
+            />
+          </svg>
         </motion.div>
-      )}
 
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 1.5 }}
-        className="mt-8 bg-white/10 rounded-2xl px-5 py-3 text-sm"
-      >
-        {tf('apply_time_taken', lang, { t: timeLabel })}
-      </motion.div>
+        <motion.h2
+          {...rise(0.34)}
+          className="u-display text-q mt-8 max-w-[16ch] text-ink"
+          lang={lang}
+        >
+          {t('apply_success', lang)}
+        </motion.h2>
+
+        {schemeName && (
+          <motion.div
+            {...rise(0.42)}
+            className="u-scheme-name text-scheme mt-3 max-w-[28ch] text-ink-2"
+            lang={lang}
+          >
+            {schemeName}
+          </motion.div>
+        )}
+
+        <motion.div {...rise(0.5)} className="well mt-8 px-5 py-3 text-[14px] text-muted tabular" lang={lang}>
+          {tf('apply_time_taken', lang, { t: timeLabel })}
+        </motion.div>
+      </div>
     </motion.div>
   );
 }

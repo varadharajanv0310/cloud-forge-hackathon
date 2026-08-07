@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
-import { AnimatePresence } from 'framer-motion';
+
 import { LanguageProvider, useLanguage } from './hooks/useLanguage.js';
 import { useVault } from './hooks/useVault.js';
 import { useEligibility } from './hooks/useEligibility.js';
-import ChatOnboarding from './components/ChatOnboarding.jsx';
+import { useSchemes } from './utils/schemesStore.js';
+import Onboarding from './components/Onboarding.jsx';
+import ProcessingSphere from './components/ProcessingSphere.jsx';
 import WowReveal from './components/WowReveal.jsx';
 import BottomNav from './components/BottomNav.jsx';
 import Landing from './pages/Landing.jsx';
@@ -25,19 +27,21 @@ export default function App() {
 function Shell() {
   const { vault, setVault, ready } = useVault();
   const { lang, setLang } = useLanguage();
-  const [phase, setPhase] = useState('loading'); // loading | landing | onboarding | reveal | app
+  // loading | landing | onboarding | processing | reveal | app
+  const [phase, setPhase] = useState('loading');
   const loc = useLocation();
   const nav = useNavigate();
-  const { eligible, totalEstimatedValue } = useEligibility(vault);
+  const { confirmed, totals } = useEligibility(vault);
+  const { schemes } = useSchemes(vault?.state);
   const [feedBadge, setFeedBadge] = useState(0);
 
+  // Decides the ENTRY phase only. It must not re-run when onboarding_complete
+  // flips, because that happens the instant onboarding finishes — and it would
+  // then overwrite the explicit setPhase('processing'), skipping the sphere and
+  // the reveal entirely and dropping the citizen straight onto the feed.
   useEffect(() => {
     if (!ready) return;
-    if (vault.onboarding_complete) {
-      setPhase('app');
-    } else {
-      setPhase('landing');
-    }
+    setPhase((p) => (p === 'loading' ? (vault.onboarding_complete ? 'app' : 'landing') : p));
   }, [ready, vault.onboarding_complete]);
 
   const handleOnboardingDone = (answers) => {
@@ -46,7 +50,7 @@ function Shell() {
       onboarding_complete: true,
       languages_preferred: answers.languages_preferred || [lang],
     });
-    setPhase('reveal');
+    setPhase('processing');
   };
 
   const goFeed = () => {
@@ -56,41 +60,50 @@ function Shell() {
 
   if (phase === 'loading') {
     return (
-      <div className="h-full grid place-items-center text-brand-muted bg-brand-white">
-        {lang === 'ta' ? 'ஏற்றப்படுகிறது...' : 'Loading...'}
+      <div className="h-full grid place-items-center bg-canvas text-muted" lang={lang}>
+        {lang === 'ta' ? 'ஏற்றப்படுகிறது…' : 'Loading…'}
       </div>
     );
   }
 
   if (phase === 'landing') {
-    return (
-      <div className="h-full bg-brand-black w-full overflow-y-auto">
-        <Landing onStart={() => setPhase('onboarding')} lang={lang} setLang={setLang} />
-      </div>
-    );
+    return <Landing onStart={() => setPhase('onboarding')} lang={lang} setLang={setLang} />;
   }
 
   if (phase === 'onboarding') {
+    return <Onboarding onComplete={handleOnboardingDone} lang={lang} setLang={setLang} />;
+  }
+
+  if (phase === 'processing') {
     return (
-      <div className="h-full">
-        <ChatOnboarding onComplete={handleOnboardingDone} lang={lang} setLang={setLang} />
-      </div>
+      <ProcessingSphere
+        profile={vault}
+        lang={lang}
+        schemeCount={schemes?.length || 0}
+        onDone={() => setPhase('reveal')}
+      />
     );
   }
 
   if (phase === 'reveal') {
+    // No AnimatePresence here. Phases swap by conditional return, so there is
+    // never an exiting sibling for it to coordinate — and wrapping a single
+    // keyless child left the reveal's staggered entrances stuck at opacity 0.
     return (
-      <AnimatePresence>
-        <WowReveal count={eligible.length} totalValue={totalEstimatedValue} lang={lang} onContinue={goFeed} />
-      </AnimatePresence>
+      <WowReveal
+        count={confirmed.length}
+        totals={totals}
+        profile={vault}
+        lang={lang}
+        onContinue={goFeed}
+      />
     );
   }
 
-  // Main app
   const showNav = !['/apply', '/scheme'].some((p) => loc.pathname.startsWith(p));
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full flex flex-col bg-canvas">
       <div className="flex-1 overflow-y-auto">
         <Routes>
           <Route path="/" element={<Navigate to="/feed" replace />} />

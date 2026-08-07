@@ -1,106 +1,228 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-html,
-body,
-#root {
-  height: 100%;
-  width: 100%;
-  -webkit-tap-highlight-color: transparent;
+/* ═══════════════════════════════════════════════════════════════════════════
+   Sevai design system — ported from the Claude Design source (Sevai.dc.html).
+
+   Editorial, not app-like: 4px radii, hairline rules, a mono meta face, and
+   English and Tamil shown TOGETHER rather than behind a language toggle.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* surfaces */
+  --page: #fbfbfd;          /* app canvas */
+  --shell: #f4f4f7;         /* desktop page behind the app shell */
+  --white: #ffffff;
+  --panel: rgba(255, 255, 255, 0.62);
+
+  /* ink ramp — straight from the source */
+  --ink: #14141a;
+  --ink-90: #25252e;
+  --ink-80: #3b3b46;
+  --ink-70: #44444f;
+  --ink-65: #4a4a56;
+  --ink-60: #55555f;
+  --ink-55: #5c5c68;
+  --ink-45: #6c6c78;
+  --ink-40: #7a7a86;
+  --ink-30: #8a8a95;
+  --ink-25: #9a9aa6;
+  --ink-15: #b0b0ba;
+
+  /* hairlines */
+  --rule-10: rgba(20, 20, 26, 0.10);
+  --rule-12: rgba(20, 20, 26, 0.12);
+  --rule-14: rgba(20, 20, 26, 0.14);
+  --rule-16: rgba(20, 20, 26, 0.16);
+  --rule-20: rgba(20, 20, 26, 0.20);
+  --rule-22: rgba(20, 20, 26, 0.22);
+
+  /* accent — used for links and the highlight rule under emphasised words */
+  --violet: #5b45a8;
+  --violet-sel: #dccdf7;
+  --violet-mark: rgba(192, 172, 240, 0.45);
+
+  /* bloom stops */
+  --bloom-teal: 132, 212, 221;
+  --bloom-lav: 192, 172, 240;
+  --bloom-peach: 248, 201, 156;
+  --bloom-pink: 240, 180, 201;
+
+  /* sahayak — the one warm, deliberately different surface */
+  --sah-ink: #7a5410;
+  --sah-ink-2: #9e7a2e;
+  --sah-rule: rgba(158, 110, 26, 0.45);
+  --sah-bg: rgba(226, 164, 54, 0.09);
+  --sah-bg-hover: rgba(226, 164, 54, 0.16);
 }
+
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; width: 100%; -webkit-tap-highlight-color: transparent; }
 
 body {
   margin: 0;
-  font-family: 'SF Pro Display', 'Inter', system-ui, sans-serif;
-  background-color: #FAFAFA;
-  color: #1A1A1A;
-  font-size: 18px;
-  line-height: 1.6;
-  letter-spacing: -0.01em;
+  background: var(--page);
+  color: var(--ink);
+  font-family: Archivo, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
   overscroll-behavior-y: none;
 }
 
-button {
-  font-family: inherit;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
+a { color: var(--ink); text-decoration: none; }
+a:hover { color: var(--violet); }
+button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; text-align: left; padding: 0; }
+input, select, textarea { font: inherit; color: inherit; }
+::selection { background: var(--violet-sel); }
 
-/* Ensure minimum 48x48 target size */
-button,
-[role='button'] {
-  min-height: 48px;
-  min-width: 48px;
-}
+.hide-scrollbar::-webkit-scrollbar { display: none; }
+.hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
-/* Hide scrollbar for chip rows */
-.hide-scrollbar::-webkit-scrollbar {
-  display: none;
+/* ── Bloom drift ──────────────────────────────────────────────────────────── */
+@keyframes svDrift {
+  0%   { transform: translate3d(0, 0, 0) scale(1); }
+  50%  { transform: translate3d(0, -16px, 0) scale(1.05); }
+  100% { transform: translate3d(0, 0, 0) scale(1); }
 }
-.hide-scrollbar {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
+@keyframes svSpin  { to { transform: rotate(360deg); } }
+@keyframes svPulse { 0% { opacity: .55 } 50% { opacity: 1 } 100% { opacity: .55 } }
 
 @layer components {
-  .btn-primary {
-    @apply bg-brand-ink text-white font-bold rounded-full px-6 py-4 text-lg shadow-xl active:scale-95 transition-transform;
+  /* ── Type roles ─────────────────────────────────────────────────────────
+     `.mono` is the meta face: uppercase, wide-tracked, always Latin. Tamil
+     never takes it — Indic scripts have no uppercase, so `[lang=ta]` below
+     drops the transform and the tracking.                                   */
+  .mono {
+    font-family: 'IBM Plex Mono', ui-monospace, monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
   }
-  .btn-secondary {
-    @apply bg-white text-brand-ink border-[1.5px] border-gray-200 font-bold rounded-full px-6 py-4 text-lg active:scale-95 transition-transform;
+  .ta {
+    font-family: 'Noto Sans Tamil', Archivo, sans-serif;
+    line-height: 1.5;
   }
-  .btn-saffron {
-    @apply bg-brand-saffron text-white font-bold rounded-full px-6 py-4 text-lg shadow-xl active:scale-95 transition-transform;
+  [lang='ta'] .mono, .mono[lang='ta'] {
+    text-transform: none;
+    letter-spacing: 0.02em;
+    font-family: 'Noto Sans Tamil', sans-serif;
   }
+
+  /* Display sizes. Tracking is tight and negative, as in the source. */
+  .h-hero  { font-size: clamp(46px, 6.4vw, 92px); line-height: .95;  font-weight: 700; letter-spacing: -.045em; text-wrap: balance; }
+  .h-1     { font-size: 40px; line-height: 1.06; font-weight: 700; letter-spacing: -.035em; }
+  .h-2     { font-size: 34px; line-height: 1.1;  font-weight: 700; letter-spacing: -.035em; }
+  .h-3     { font-size: 22px; line-height: 1.25; font-weight: 600; letter-spacing: -.02em; }
+  .figure  { font-size: 54px; line-height: 1;    font-weight: 700; letter-spacing: -.04em; }
+  .figure-sm { font-size: 36px; line-height: 1.05; font-weight: 800; letter-spacing: -.042em; }
+
+  /* Long scheme names never take a display face and must wrap, never clip. */
+  .scheme-name {
+    font-size: 17px; line-height: 1.35; font-weight: 600; letter-spacing: -.015em;
+    text-wrap: balance; overflow-wrap: break-word; hyphens: none;
+  }
+
+  /* ── Surfaces ───────────────────────────────────────────────────────────
+     Small radii on purpose. This reads as a document, not an app.          */
+  .panel      { background: var(--white); border: 1px solid var(--rule-14); border-radius: 6px; }
+  .panel-flat { background: var(--panel); border: 1px solid var(--rule-16); border-radius: 4px; }
+  .shell      { background: var(--page); border: 1px solid var(--rule-16); border-radius: 8px;
+                box-shadow: 0 40px 90px -30px rgba(20, 20, 26, .28); overflow: hidden; }
+  .rule-t     { border-top: 1px solid var(--rule-14); }
+  .rule-b     { border-bottom: 1px solid var(--rule-12); }
+  .rule-r     { border-right: 1px solid var(--rule-12); }
+
+  /* ── Controls ───────────────────────────────────────────────────────────── */
+  .btn {
+    background: var(--ink); color: #fff; border-radius: 999px;
+    padding: 19px 36px; font-size: 17px; font-weight: 600; letter-spacing: -.01em;
+    box-shadow: 0 14px 30px -12px rgba(20, 20, 26, .55);
+    transition: transform .18s ease, box-shadow .18s ease;
+  }
+  .btn:hover { transform: translateY(-2px); box-shadow: 0 20px 38px -12px rgba(20, 20, 26, .6); }
+
+  .btn-quiet {
+    border: 1px solid var(--rule-22); border-radius: 999px;
+    padding: 8px 18px; font-size: 14.5px; font-weight: 500;
+    background: rgba(255, 255, 255, .55);
+    transition: background .18s ease, color .18s ease, border-color .18s ease;
+  }
+  .btn-quiet:hover { background: var(--ink); color: #fff; border-color: var(--ink); }
+
+  .btn-icon {
+    width: 42px; height: 42px; display: flex; align-items: center; justify-content: center;
+    border: 1px solid var(--rule-20); border-radius: 999px; background: #fff; flex: none;
+  }
+  .btn-icon:hover { border-color: var(--ink); }
+
+  /* An answer option. Full-width, generous — a cracked screen is the target. */
+  .option {
+    width: 100%; display: block; text-align: left;
+    border: 1px solid var(--rule-16); border-radius: 4px;
+    background: #fff; padding: 15px 18px; min-height: 56px;
+    transition: border-color .18s ease, background .18s ease;
+  }
+  .option:hover { border-color: var(--ink); }
+  .option[data-selected='true'] { background: var(--ink); color: #fff; border-color: var(--ink); }
+
+  /* A Thread chip — the citizen's own answer, carried forward. */
   .chip {
-    @apply inline-flex items-center justify-center rounded-full bg-white border border-gray-200 px-4 py-2 text-sm font-bold;
+    display: inline-flex; align-items: center; gap: 6px;
+    border: 1px solid var(--rule-16); border-radius: 999px;
+    padding: 5px 12px; font-size: 12.5px; line-height: 1.4;
+    background: #fff; white-space: nowrap;
   }
-  .card {
-    @apply bg-white rounded-[24px] shadow-card p-6;
+  .chip-mark { background: var(--violet-mark); border-color: transparent; }
+
+  /* Sahayak — the deliberately different surface. */
+  .sahayak {
+    border: 1px dashed var(--sah-rule); background: var(--sah-bg);
+    border-radius: 4px; color: var(--sah-ink);
   }
-  .amber-banner {
-    @apply bg-brand-amber/20 border border-brand-amber text-brand-ink rounded-xl px-4 py-3 text-sm;
-  }
+  .sahayak:hover { background: var(--sah-bg-hover); }
+
+  /* Emphasised word in body copy — a highlighter rule, not a colour change. */
+  .mark { font-style: normal; box-shadow: inset 0 -.5em 0 var(--violet-mark); }
 }
 
 @layer utilities {
-  .neo-glass {
-    @apply bg-white/20 backdrop-blur-xl border border-white/40 shadow-lg;
+  /* Bloom is painted, never blurred. A large filter: blur() drops a budget
+     Android under 30fps; stacked radial-gradients cost nothing. */
+  .bloom { position: absolute; pointer-events: none; }
+  .bloom-landing {
+    inset: -10% -5%;
+    animation: svDrift 22s ease-in-out infinite;
+    background:
+      radial-gradient(34% 42% at 10% 16%, rgba(var(--bloom-teal), .60) 0%, rgba(var(--bloom-teal), .34) 32%, rgba(var(--bloom-teal), .11) 58%, rgba(var(--bloom-teal), 0) 76%),
+      radial-gradient(40% 48% at 78% 4%,  rgba(var(--bloom-lav), .58) 0%, rgba(var(--bloom-lav), .32) 34%, rgba(var(--bloom-lav), .10) 60%, rgba(var(--bloom-lav), 0) 78%),
+      radial-gradient(42% 40% at 92% 54%, rgba(var(--bloom-peach), .55) 0%, rgba(var(--bloom-peach), .30) 34%, rgba(var(--bloom-peach), .09) 60%, rgba(var(--bloom-peach), 0) 78%),
+      radial-gradient(46% 38% at 30% 96%, rgba(var(--bloom-pink), .42) 0%, rgba(var(--bloom-pink), .22) 36%, rgba(var(--bloom-pink), .06) 62%, rgba(var(--bloom-pink), 0) 80%);
   }
-  .neo-glass-dark {
-    @apply bg-black/40 backdrop-blur-3xl border border-white/10 shadow-2xl;
+  .bloom-shell {
+    inset: 0;
+    background:
+      radial-gradient(28% 34% at 6% 4%,  rgba(var(--bloom-lav), .30) 0%, rgba(var(--bloom-lav), .12) 44%, rgba(var(--bloom-lav), 0) 74%),
+      radial-gradient(30% 38% at 96% 92%, rgba(var(--bloom-teal), .26) 0%, rgba(var(--bloom-teal), 0) 72%);
   }
-  .text-shadow-glow {
-    text-shadow: 0 0 20px rgba(0, 122, 255, 0.4);
+  .bloom-header {
+    inset: 0; height: 280px;
+    background:
+      radial-gradient(46% 100% at 10% 0%, rgba(var(--bloom-peach), .34) 0%, rgba(var(--bloom-peach), .12) 46%, rgba(var(--bloom-peach), 0) 78%),
+      radial-gradient(40% 90% at 88% 0%,  rgba(var(--bloom-lav), .30) 0%, rgba(var(--bloom-lav), 0) 74%);
   }
+  .tabular { font-variant-numeric: tabular-nums; }
+
+  /* Entrance that cannot hide content: opacity stays 1, only the translate
+     animates. JS-driven entrances stall when the renderer suspends rAF, and a
+     blank reveal at the moment of truth is unforgivable. */
+  .enter { animation: enterRise .42s cubic-bezier(.22, 1, .36, 1) both; }
+  @keyframes enterRise { from { transform: translate3d(0, 14px, 0) } to { transform: translate3d(0, 0, 0) } }
 }
 
-/* Waveform bars */
-.wave-bar {
-  display: inline-block;
-  width: 4px;
-  margin: 0 2px;
-  background: currentColor;
-  border-radius: 2px;
-  transform-origin: center;
-  animation: wave 1s ease-in-out infinite;
-}
-.wave-bar:nth-child(1) { animation-delay: 0s; }
-.wave-bar:nth-child(2) { animation-delay: 0.1s; }
-.wave-bar:nth-child(3) { animation-delay: 0.2s; }
-.wave-bar:nth-child(4) { animation-delay: 0.3s; }
-.wave-bar:nth-child(5) { animation-delay: 0.4s; }
-
-/* SVG draw animation */
-@keyframes draw-check {
-  from { stroke-dashoffset: 100; }
-  to { stroke-dashoffset: 0; }
-}
-.check-draw {
-  stroke-dasharray: 100;
-  stroke-dashoffset: 100;
-  animation: draw-check 0.8s ease-out forwards;
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+  }
 }

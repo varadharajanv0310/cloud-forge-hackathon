@@ -64,6 +64,43 @@ export const requestNotificationPermission = async () => {
 };
 
 /**
+ * Body copy for a scheme notification.
+ *
+ * v1 read `scheme.benefit_amount` and fell back to `|| 0`, so every scheme
+ * whose amount the parser could not read — which is most of the corpus —
+ * pushed a notification promising "Benefit: ₹0". A notification is the one
+ * surface a citizen cannot inspect for context, so an unpublished amount is
+ * omitted entirely rather than printed as a numeral.
+ *
+ * Only `benefit.cash` is quoted. A loan ceiling is borrowing capacity, not
+ * money received, and a push notification has no room to carry that
+ * distinction — so it is never used as the figure.
+ */
+export const notificationBody = (scheme, lang = 'ta') => {
+  const cash = scheme?.benefit?.cash;
+  const ta = lang === 'ta';
+
+  if (!cash) {
+    return ta
+      ? 'நீங்கள் தகுதியானவர். விவரங்களைப் பார்க்க திறக்கவும்.'
+      : 'You qualify — open Sevai to see the details.';
+  }
+
+  const amount = `₹${cash.toLocaleString('en-IN')}`;
+  const freq = scheme.benefit.cash_frequency;
+  const recurring = freq === 'annual' || freq === 'monthly';
+
+  if (recurring) {
+    return ta
+      ? `நீங்கள் தகுதியானவர். ஆண்டுக்கு ${amount} வரை.`
+      : `You qualify — ${amount} per year.`;
+  }
+  return ta
+    ? `நீங்கள் தகுதியானவர். ஒரு முறை ${amount}.`
+    : `You qualify — ${amount}, one-time.`;
+};
+
+/**
  * Trigger a local push notification immediately (for demo / judge trigger).
  * Uses the service worker's showNotification so it fires even when minimized.
  */
@@ -72,9 +109,7 @@ export const triggerDemoNotification = async (scheme, lang = 'ta') => {
   if (perm !== 'granted') return false;
 
   const title = lang === 'ta' ? `புதிய திட்டம்: ${scheme.name_plain}` : `New scheme: ${scheme.name_plain}`;
-  const body = lang === 'ta'
-    ? `நீங்கள் தகுதியானவர். ₹${(scheme.benefit_amount || 0).toLocaleString('en-IN')} பயன் அளிக்கும்`
-    : `You qualify! Benefit: ₹${(scheme.benefit_amount || 0).toLocaleString('en-IN')}`;
+  const body = notificationBody(scheme, lang);
 
   if ('serviceWorker' in navigator) {
     const reg = await navigator.serviceWorker.ready.catch(() => null);

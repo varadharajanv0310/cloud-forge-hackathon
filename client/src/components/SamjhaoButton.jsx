@@ -3,7 +3,15 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { t } from '../data/strings.js';
 import { useTTS } from '../hooks/useTTS.js';
 
-// "Kelungal" button — fetch Claude summary → ElevenLabs TTS with waveform.
+/**
+ * SamjhaoButton — the "Kelungal" read-aloud control.
+ *
+ * Fetches a plain-language summary from /api/summarize-scheme, then speaks it.
+ * The audio path is unchanged; only the surface is. It is the primary action on
+ * a scheme card for anyone reading slowly, so it takes the primary button —
+ * ink, full width, ≥52px — and the waveform replaces the icon in place rather
+ * than appearing beside it, so the row never reflows mid-sentence.
+ */
 const localCache = new Map();
 
 export default function SamjhaoButton({ scheme, lang }) {
@@ -90,60 +98,100 @@ export default function SamjhaoButton({ scheme, lang }) {
   // Determine display state: loading = fetching summary OR waiting for audio
   const showLoading = isLoading && active;
   const showPlaying = isPlaying && active;
+  const ta = lang === 'ta';
 
   return (
     <div onClick={(e) => e.stopPropagation()}>
       <button
         onClick={handleClick}
         disabled={isLoading && !active} // disabled only if another button is loading
-        className="w-full bg-brand-green text-white rounded-2xl px-5 py-4 text-lg font-bold shadow-card active:scale-95 transition-transform flex items-center justify-center gap-3 disabled:opacity-60"
+        aria-live="polite"
+        lang={lang}
+        className="btn-primary w-full flex items-center justify-center gap-3
+                   disabled:opacity-50 disabled:shadow-e1"
       >
-        {showLoading ? (
-          <span className="w-5 h-5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-        ) : showPlaying ? (
-          <WaveformBars />
-        ) : (
-          <span className="text-xl">🔊</span>
-        )}
+        <span className="w-6 h-6 grid place-items-center shrink-0" aria-hidden="true">
+          {showLoading ? (
+            <span className="w-4 h-4 border-2 border-white/35 border-t-white rounded-full animate-spin" />
+          ) : showPlaying ? (
+            <WaveformBars />
+          ) : (
+            <SpeakerGlyph />
+          )}
+        </span>
         <span>
           {showLoading
-            ? lang === 'ta' ? 'தயாராகிறது...' : 'Preparing...'
+            ? ta ? 'தயாராகிறது…' : 'Preparing…'
             : showPlaying
-            ? lang === 'ta' ? 'பேசிக்கொண்டிருக்கிறது... (தடுக்க தட்டு)' : 'Playing… (tap to stop)'
+            ? ta ? 'படிக்கிறது… (நிறுத்த தட்டவும்)' : 'Reading aloud… (tap to stop)'
             : t('listen_kelungal', lang)}
         </span>
       </button>
 
       <AnimatePresence>
         {bullets.length > 0 && (
-          <motion.ul
+          <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
-            className="mt-3 space-y-1.5 text-[15px] text-brand-ink overflow-hidden"
+            transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
+            className="overflow-hidden"
           >
-            {bullets.map((b, i) => (
-              <li key={i} className="flex gap-2">
-                <span className="text-brand-green font-bold flex-shrink-0">✓</span>
-                <span>{b.replace(/^[✓\-•]\s*/, '')}</span>
-              </li>
-            ))}
-            {error && <li className="text-xs text-brand-muted italic">{error}</li>}
-          </motion.ul>
+            <div className="well mt-3 px-4 py-3.5">
+              <ul className="space-y-2 text-[15px] leading-relaxed text-ink-2" lang={lang}>
+                {bullets.map((b, i) => (
+                  <li key={i} className="flex gap-2.5">
+                    <span className="text-muted shrink-0 select-none" aria-hidden="true">
+                      —
+                    </span>
+                    <span>{String(b).replace(/^[✓\-•]\s*/, '')}</span>
+                  </li>
+                ))}
+              </ul>
+              {error && (
+                <div className="u-meta mt-3" lang={lang}>
+                  {error}
+                </div>
+              )}
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>
   );
 }
 
+function SpeakerGlyph() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="20"
+      height="20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M11 5 6.5 9H3v6h3.5L11 19V5Z" />
+      <path d="M15.5 9.2a4 4 0 0 1 0 5.6" />
+      <path d="M18.4 6.6a8 8 0 0 1 0 10.8" />
+    </svg>
+  );
+}
+
+/* Five bars on the tailwind `wave` keyframe (scaleY), anchored to the baseline.
+   prefers-reduced-motion is handled globally in index.css, which flattens the
+   animation rather than removing the bars — the playing state stays legible. */
 function WaveformBars() {
   return (
-    <span className="flex items-end h-6 gap-[3px]">
-      {[4, 6, 3, 5, 4].map((h, i) => (
+    <span className="flex items-end h-5 gap-[2.5px]" aria-hidden="true">
+      {[10, 16, 8, 14, 11].map((h, i) => (
         <span
           key={i}
-          className="w-1 rounded-full bg-white wave-bar"
-          style={{ height: `${h * 4}px`, animationDelay: `${i * 80}ms` }}
+          className="w-[2.5px] rounded-full bg-white animate-wave"
+          style={{ height: `${h}px`, transformOrigin: 'bottom', animationDelay: `${i * 90}ms` }}
         />
       ))}
     </span>
