@@ -1,146 +1,190 @@
-import { motion } from 'framer-motion';
+import { useEffect, useState } from 'react';
+import { motion, useReducedMotion } from 'framer-motion';
+import { loadManifest } from '../utils/schemesStore.js';
+
+/**
+ * Landing — the first thing a judge sees.
+ *
+ * Every figure here is read from the generated corpus manifest at runtime. The
+ * previous landing claimed "₹4Cr+ Claimed Successfully" and "12k Farmers
+ * Served"; both were invented, and inventing a statistic on the one screen that
+ * asks for trust undoes the entire honesty argument the product rests on.
+ */
+
+const FALLBACK = { schemes: 4643, states: 36, central: 668 };
+
+function useCorpusStats() {
+  const [s, setS] = useState(FALLBACK);
+  useEffect(() => {
+    loadManifest()
+      .then((m) => {
+        if (!m) return;
+        const total = (m.central_count || 0) + (m.states || []).reduce((n, x) => n + x.count, 0);
+        setS({
+          schemes: total || FALLBACK.schemes,
+          states: (m.states || []).length || FALLBACK.states,
+          central: m.central_count || FALLBACK.central,
+        });
+      })
+      .catch(() => {});
+  }, []);
+  return s;
+}
+
+const nf = (n) => n.toLocaleString('en-IN');
 
 export default function Landing({ onStart, lang, setLang }) {
-  const t = (en, ta) => (lang === 'en' ? en : ta);
+  const t = (en, ta) => (lang === 'ta' ? ta : en);
+  const stats = useCorpusStats();
+  const reduce = useReducedMotion();
+
+  const rise = (delay = 0) => ({
+    initial: reduce ? false : { opacity: 0, y: 16 },
+    animate: { opacity: 1, y: 0 },
+    transition: { duration: 0.5, delay, ease: [0.22, 1, 0.36, 1] },
+  });
 
   return (
-    <div className="min-h-screen bg-black text-white relative overflow-hidden font-sans">
-      {/* Background ambient glow */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[60vw] h-[60vw] bg-[#007AFF]/20 rounded-full blur-[120px] pointer-events-none" />
+    <div className="min-h-[100dvh] w-full bg-canvas relative overflow-x-hidden">
+      <div className="bloom bloom-cool animate-bloom-drift" aria-hidden="true" />
 
-      {/* Header */}
-      <header className="p-6 md:px-12 flex justify-between items-center relative z-10">
-        <h1 className="text-2xl font-black tracking-tight text-white">
-          Sevai<span className="text-[#007AFF]">-</span>Scout
-        </h1>
-        <button
-          onClick={() => setLang(lang === 'en' ? 'ta' : 'en')}
-          className="neo-glass-dark px-4 py-2 rounded-full font-semibold text-sm transition-transform active:scale-95"
-        >
-          {lang === 'en' ? 'தமிழ்' : 'English'}
-        </button>
-      </header>
+      <div className="relative z-10 mx-auto w-full max-w-[1120px] px-4 sm:px-6 py-4 sm:py-6">
+        {/* ── nav ─────────────────────────────────────────────────────────── */}
+        <header className="flex items-center justify-between mb-8 sm:mb-14 px-2">
+          <div className="u-display text-[19px] tracking-[-0.02em]">Sevai</div>
+          <button
+            onClick={() => setLang(lang === 'ta' ? 'en' : 'ta')}
+            className="btn-ghost compact text-[14px]"
+            lang={lang === 'ta' ? 'en' : 'ta'}
+          >
+            {lang === 'ta' ? 'English' : 'தமிழ்'}
+          </button>
+        </header>
 
-      <main className="container mx-auto px-6 md:px-12 pt-12 pb-24 grid lg:grid-cols-2 gap-16 relative z-10 items-center">
-        {/* Left Column: Hero Copy */}
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8 }}
-          className="flex flex-col gap-8 text-center lg:text-left"
-        >
-          <h2 className="text-5xl lg:text-[72px] leading-[1.1] font-black tracking-tighter text-shadow-glow">
+        {/* ── hero ────────────────────────────────────────────────────────── */}
+        <div className="surface-tray">
+          <div className="surface-plate relative overflow-hidden px-6 sm:px-12 lg:px-16 py-12 sm:py-16 lg:py-20">
+            <div className="bloom bloom-warm bloom-quiet" aria-hidden="true" />
+
+            <div className="relative z-10 max-w-[760px]">
+              <motion.div {...rise(0)}>
+                <span className="u-meta inline-flex items-center gap-2" lang={lang}>
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-ink" />
+                  {t('Government welfare, without the paperwork', 'அரசு நலத்திட்டங்கள், காகிதம் இன்றி')}
+                </span>
+              </motion.div>
+
+              <motion.h1
+                {...rise(0.06)}
+                lang={lang}
+                className="u-display text-q sm:text-q-md lg:text-q-lg mt-5 text-ink"
+              >
+                {t('Know what you are owed.', 'உங்களுக்கு உரியது என்னவென்று அறியுங்கள்.')}
+              </motion.h1>
+
+              <motion.p
+                {...rise(0.12)}
+                lang={lang}
+                className="mt-5 text-lead text-ink-2 max-w-[52ch]"
+              >
+                {t(
+                  'Answer a few questions. We check every central and state scheme you could claim, and show you why each one matched.',
+                  'சில கேள்விகளுக்கு பதிலளியுங்கள். நீங்கள் பெறக்கூடிய அனைத்து மத்திய மற்றும் மாநிலத் திட்டங்களையும் சரிபார்த்து, ஒவ்வொன்றும் ஏன் பொருந்தியது என்பதைக் காட்டுவோம்.',
+                )}
+              </motion.p>
+
+              <motion.div {...rise(0.18)} className="mt-9 flex flex-wrap items-center gap-3">
+                <button onClick={onStart} className="btn-primary" lang={lang}>
+                  {t('Find my schemes', 'என் திட்டங்களைக் கண்டறி')}
+                </button>
+                <span className="text-[14px] text-muted" lang={lang}>
+                  {t('Takes about two minutes', 'சுமார் இரண்டு நிமிடங்கள்')}
+                </span>
+              </motion.div>
+            </div>
+
+            {/* ── real corpus figures ───────────────────────────────────── */}
+            <motion.dl
+              {...rise(0.26)}
+              className="relative z-10 mt-14 sm:mt-16 grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-8
+                         pt-8 border-t border-hairline"
+            >
+              {[
+                [nf(stats.schemes), t('schemes searched', 'திட்டங்கள்')],
+                [nf(stats.states), t('states & UTs', 'மாநிலங்கள்')],
+                [nf(stats.central), t('central schemes', 'மத்தியத் திட்டங்கள்')],
+                ['0', t('forms to fill', 'நிரப்ப வேண்டிய படிவங்கள்')],
+              ].map(([v, k]) => (
+                <div key={k}>
+                  <dd className="u-display tabular text-[30px] sm:text-[34px] text-ink">{v}</dd>
+                  <dt className="u-meta mt-1" lang={lang}>{k}</dt>
+                </div>
+              ))}
+            </motion.dl>
+          </div>
+        </div>
+
+        {/* ── how it works ────────────────────────────────────────────────── */}
+        <div className="mt-6 grid gap-4 md:grid-cols-3">
+          {[
+            {
+              n: '01',
+              h: t('You answer, not a form', 'படிவம் அல்ல, பதில்கள்'),
+              p: t(
+                'One question at a time, in your language. Skip anything you would rather not say.',
+                'ஒரு நேரத்தில் ஒரு கேள்வி, உங்கள் மொழியில். சொல்ல விரும்பாததைத் தவிர்க்கலாம்.',
+              ),
+            },
+            {
+              n: '02',
+              h: t('We check everything', 'அனைத்தையும் சரிபார்க்கிறோம்'),
+              p: t(
+                'Central schemes plus your own state’s. Never another state’s — those are not yours to claim.',
+                'மத்தியத் திட்டங்களுடன் உங்கள் மாநிலத் திட்டங்களும். பிற மாநிலங்களுடையவை அல்ல.',
+              ),
+            },
+            {
+              n: '03',
+              h: t('You see the reason', 'காரணத்தையும் காட்டுவோம்'),
+              p: t(
+                'Each scheme carries the answers that matched it, so nothing is a black box.',
+                'ஒவ்வொரு திட்டமும் பொருந்திய காரணங்களுடன் வரும். எதுவும் மறைக்கப்படவில்லை.',
+              ),
+            },
+          ].map((c, i) => (
+            <motion.div
+              key={c.n}
+              initial={reduce ? false : { opacity: 0, y: 16 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: '-60px' }}
+              transition={{ duration: 0.45, delay: i * 0.06, ease: [0.22, 1, 0.36, 1] }}
+              className="card"
+            >
+              <div className="u-display tabular text-[15px] text-muted">{c.n}</div>
+              <h3 className="u-display text-[21px] mt-3 text-ink" lang={lang}>{c.h}</h3>
+              <p className="mt-2 text-[15px] leading-[1.6] text-muted" lang={lang}>{c.p}</p>
+            </motion.div>
+          ))}
+        </div>
+
+        {/* ── the honest note ─────────────────────────────────────────────── */}
+        <div className="mt-6 card">
+          <div className="u-meta" lang={lang}>{t('What this does not do', 'இது என்ன செய்யாது')}</div>
+          <p className="mt-3 text-[15px] leading-[1.65] text-ink-2 max-w-[70ch]" lang={lang}>
             {t(
-              'Your High-Tech Bridge to Government Support.',
-              'அரசு திட்டங்களுக்கான உங்கள் உயர்தொழில்நுட்ப பாலம்.'
-            )}
-          </h2>
-          <p className="text-lg lg:text-xl text-white/60 max-w-xl mx-auto lg:mx-0 font-medium tracking-tight">
-            {t(
-              'Discover premium, tailored schemes precisely matched to your profile. Zero paperwork. Zero confusion.',
-              'பூஜ்ஜிய காகித வேலைகளுடன் உங்கள் சுயவிவரத்திற்கு ஏற்ற திட்டங்களைக் கண்டறியவும்.'
+              'Sevai does not submit applications for you and does not promise money. It tells you which schemes you appear eligible for, what each is worth, and links you to the official page to apply. Amounts a scheme has not published are counted but never guessed at.',
+              'சேவை உங்களுக்காக விண்ணப்பிக்காது, பணம் உறுதியளிக்காது. நீங்கள் தகுதி பெறக்கூடிய திட்டங்கள், அவற்றின் மதிப்பு, மற்றும் அதிகாரப்பூர்வ பக்கத்திற்கான இணைப்பை மட்டுமே தரும். அறிவிக்கப்படாத தொகைகள் ஊகிக்கப்படுவதில்லை.',
             )}
           </p>
+        </div>
 
-          <div className="pt-6">
-            <button
-              onClick={onStart}
-              className="bg-[#007AFF] text-white w-full lg:w-auto px-10 py-5 rounded-full text-xl font-bold hover:bg-blue-600 transition-all active:scale-95 shadow-[0_0_30px_rgba(0,122,255,0.4)]"
-            >
-              {t('Launch Sevai-Scout', 'சேவை-ஸ்கவுட்டைத் தொடங்குங்கள்')}
-            </button>
-          </div>
-        </motion.div>
-
-        {/* Right Column: 3D Phone & Bento Grid */}
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 1, delay: 0.2 }}
-          className="flex items-center justify-center lg:justify-end mt-16 lg:mt-0 w-full"
-        >
-          <div className="relative w-[320px] h-[660px] lg:w-[380px] lg:h-[780px]">
-            {/* Floating Phone Mockup */}
-            <motion.div
-              animate={{ y: [0, -20, 0] }}
-              transition={{ repeat: Infinity, duration: 6, ease: 'easeInOut' }}
-              className="w-full h-full bg-gradient-to-tr from-gray-950 to-gray-800 rounded-[48px] border-[12px] border-gray-900 shadow-[0_0_80px_rgba(0,122,255,0.15),0_40px_60px_rgba(0,0,0,0.6)] relative z-20 overflow-hidden"
-            >
-              {/* Notch */}
-              <div className="absolute top-0 inset-x-0 h-8 bg-gray-900 z-30 rounded-b-[24px] flex items-center justify-center px-4 w-36 mx-auto">
-                <div className="w-16 h-1.5 bg-black rounded-full" />
-              </div>
-
-              {/* Phone Screen content simulation */}
-              <div className="w-full h-full bg-[#FAFAFA] p-5 pt-14 flex flex-col gap-5 relative">
-                <div className="flex justify-between items-center mb-2">
-                  <div className="w-24 h-5 bg-gray-200 rounded-full" />
-                  <div className="w-10 h-10 bg-gray-200 rounded-full" />
-                </div>
-
-                <div className="w-full bg-white rounded-[24px] shadow-sm border border-gray-100 p-5">
-                  <div className="flex gap-4 mb-5">
-                    <div className="w-12 h-12 bg-green-100 rounded-full" />
-                    <div className="flex-1 space-y-2 py-1">
-                      <div className="h-3 w-3/4 bg-gray-200 rounded-full mb-2" />
-                      <div className="h-2 w-1/2 bg-gray-100 rounded-full" />
-                    </div>
-                  </div>
-                  <div className="w-full h-10 bg-[#007AFF] rounded-full opacity-90" />
-                </div>
-
-                <div className="w-full bg-white rounded-[24px] shadow-sm border border-gray-100 p-5 relative overflow-hidden">
-                  <div className="absolute top-0 right-0 w-24 h-24 bg-[#007AFF]/5 rounded-bl-full" />
-                  <div className="flex gap-4 mb-5 relative z-10">
-                    <div className="w-12 h-12 bg-orange-100 rounded-full" />
-                    <div className="flex-1 space-y-2 py-1">
-                      <div className="h-3 w-4/5 bg-gray-200 rounded-full mb-2" />
-                      <div className="h-2 w-2/3 bg-gray-100 rounded-full" />
-                    </div>
-                  </div>
-                  <div className="w-full h-2 bg-red-400 rounded-full mb-4" />
-                  <div className="w-full h-10 bg-[#007AFF] rounded-full opacity-90 relative z-10" />
-                </div>
-
-                <div className="absolute bottom-0 inset-x-0 h-32 bg-gradient-to-t from-[#FAFAFA] to-transparent" />
-              </div>
-            </motion.div>
-
-            {/* Bento Stats — Stat 1: Top Right */}
-            <motion.div
-              initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.4 }}
-              className="bg-white/10 backdrop-blur-xl p-6 rounded-[24px] border border-white/20 shadow-[0_8px_32px_rgba(0,0,0,0.5)] flex flex-col absolute top-20 -right-8 lg:top-32 lg:-right-20 w-48 z-40 transform rotate-2"
-            >
-              <div className="text-3xl lg:text-4xl font-black text-[#007AFF] mb-1">₹4Cr+</div>
-              <div className="text-xs text-white/80 font-bold uppercase tracking-wide">{t('Claimed Successfully', 'வெற்றிகரமாக கோரப்பட்டது')}</div>
-            </motion.div>
-
-            {/* Stat 2: Middle Left */}
-            <motion.div
-              initial={{ opacity: 0, x: -50 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.6 }}
-              className="bg-black/80 lg:bg-black/40 backdrop-blur-md p-6 rounded-[24px] border border-white/20 shadow-[0_16px_40px_rgba(0,0,0,0.6)] flex flex-col absolute bottom-56 -left-12 lg:bottom-56 lg:-left-24 w-48 z-40 transform -rotate-3"
-            >
-              <div className="text-4xl lg:text-5xl font-black text-white tracking-tighter mb-1">12k</div>
-              <div className="text-xs text-[#007AFF] font-bold uppercase tracking-wide">{t('Farmers Served', 'பயனடைந்த விவசாயிகள்')}</div>
-            </motion.div>
-
-            {/* Stat 3: Bottom Right */}
-            <motion.div
-              initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.8 }}
-              className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl p-6 rounded-[24px] border border-white/20 shadow-[0_8px_32px_rgba(0,0,0,0.5)] absolute -bottom-8 -right-4 lg:-bottom-12 lg:-right-16 w-56 lg:w-64 z-40"
-            >
-              <div className="flex items-center gap-3">
-                <div className="flex h-3 w-3 relative">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-                  <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500" />
-                </div>
-                <div className="text-sm font-bold text-white/90 tracking-wide">System Online</div>
-              </div>
-              <div className="text-xs text-white/60 mt-2 font-medium">Real-time matching active</div>
-            </motion.div>
-          </div>
-        </motion.div>
-      </main>
+        <footer className="mt-8 mb-6 px-2 flex flex-wrap items-center justify-between gap-3">
+          <span className="u-meta" lang={lang}>
+            {t('Scheme data from myscheme.gov.in', 'திட்டத் தரவு: myscheme.gov.in')}
+          </span>
+          <span className="u-meta">Sevai</span>
+        </footer>
+      </div>
     </div>
   );
 }

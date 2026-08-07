@@ -1,8 +1,28 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Sevai design system. Rationale lives in /DESIGN.md.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --canvas: #fbfafc;
+  --surface: #ffffff;
+  --surface-sub: #f6f5f9;
+  --ink: #14131a;
+  --ink-2: #3d3a47;
+  --muted: #6e6b78;
+  --hairline: rgba(20, 19, 26, 0.08);
+
+  --bloom-lavender: #c9beef;
+  --bloom-sky: #b8d4f0;
+  --bloom-mint: #beebd8;
+  --bloom-peach: #fbd9b5;
+  --bloom-blush: #f3c7dc;
+
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
 
 html,
 body,
@@ -14,13 +34,17 @@ body,
 
 body {
   margin: 0;
-  font-family: 'SF Pro Display', 'Inter', system-ui, sans-serif;
-  background-color: #FAFAFA;
-  color: #1A1A1A;
-  font-size: 18px;
+  font-family: 'Noto Sans', 'Noto Sans Tamil', 'Noto Sans Devanagari',
+    'Noto Sans Telugu', 'Noto Sans Bengali', 'Noto Sans Kannada',
+    'Noto Sans Malayalam', 'Noto Sans Gujarati', 'Noto Sans Gurmukhi',
+    'Noto Sans Oriya', system-ui, sans-serif;
+  background-color: var(--canvas);
+  color: var(--ink);
+  font-size: 16px;
   line-height: 1.6;
-  letter-spacing: -0.01em;
   overscroll-behavior-y: none;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 button {
@@ -29,78 +53,195 @@ button {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* Ensure minimum 48x48 target size */
+/* A shared phone with a cracked screen is the design target. */
 button,
 [role='button'] {
-  min-height: 48px;
-  min-width: 48px;
+  min-height: 52px;
+}
+button.compact {
+  min-height: 0;
 }
 
-/* Hide scrollbar for chip rows */
-.hide-scrollbar::-webkit-scrollbar {
-  display: none;
+.hide-scrollbar::-webkit-scrollbar { display: none; }
+.hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* ── Script handling ────────────────────────────────────────────────────────
+   Bricolage has no Tamil, so a Tamil headline falls to Noto Sans Tamil. Tamil
+   glyphs are taller and have no case, so they need their own metric: slightly
+   smaller, looser leading, and far gentler tracking — tracked as hard as Latin,
+   Tamil conjuncts collide.                                                   */
+
+/* Optical adjustments ONLY. Do not set font-size here: `[lang='ta'] .u-display`
+   has specificity (0,2,0) and would beat Tailwind's `.text-q` (0,1,0),
+   silently collapsing every Tamil headline to ~15px. Size stays owned by the
+   size utility; Tamil parity is handled by the leading and tracking below. */
+[lang='ta'] .u-display,
+.u-display[lang='ta'] {
+  line-height: 1.38;
+  letter-spacing: -0.005em;
+  font-weight: 600;
 }
-.hide-scrollbar {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
+
+/* Indic scripts have no uppercase. Forcing it produces nonsense, so the
+   uppercase meta treatment is Latin-only. */
+[lang='ta'] .u-meta,
+.u-meta[lang='ta'] {
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+
+/* Long scheme names must wrap, never truncate mid-word, and never take the
+   display face. */
+.u-scheme-name {
+  text-wrap: balance;
+  overflow-wrap: break-word;
+  word-break: normal;
+  hyphens: none;
 }
 
 @layer components {
+  .u-display {
+    font-family: 'Bricolage Grotesque', 'Noto Sans Tamil', 'Noto Sans', system-ui, sans-serif;
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    line-height: 1.12;
+  }
+
+  .u-meta {
+    @apply text-meta uppercase text-muted font-semibold;
+  }
+
+  /* The one floating surface. Double-bezel: an outer tray holding an inner
+     plate, with concentric radii, so it reads as a physical object rather than
+     a div with a border. */
+  .surface-tray {
+    @apply rounded-[32px] p-1.5;
+    background: rgba(255, 255, 255, 0.5);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.6);
+    backdrop-filter: blur(8px);
+  }
+  .surface-plate {
+    @apply bg-surface rounded-surface shadow-e3;
+  }
+
+  .well {
+    @apply bg-surface-sub rounded-well;
+  }
+
   .btn-primary {
-    @apply bg-brand-ink text-white font-bold rounded-full px-6 py-4 text-lg shadow-xl active:scale-95 transition-transform;
+    @apply bg-ink text-white font-semibold rounded-full px-7 py-4 text-[17px]
+           shadow-e2 transition-all duration-240 ease-composed
+           hover:shadow-e3 active:scale-[0.98];
   }
   .btn-secondary {
-    @apply bg-white text-brand-ink border-[1.5px] border-gray-200 font-bold rounded-full px-6 py-4 text-lg active:scale-95 transition-transform;
+    @apply bg-surface text-ink font-semibold rounded-full px-7 py-4 text-[17px]
+           transition-all duration-240 ease-composed active:scale-[0.98];
+    box-shadow: inset 0 0 0 1px var(--hairline);
   }
-  .btn-saffron {
-    @apply bg-brand-saffron text-white font-bold rounded-full px-6 py-4 text-lg shadow-xl active:scale-95 transition-transform;
+  .btn-ghost {
+    @apply text-ink font-medium rounded-full px-4 py-2 transition-colors
+           duration-240 hover:bg-surface-sub;
   }
+
+  /* A Thread chip — the citizen's own answer, carried forward. */
   .chip {
-    @apply inline-flex items-center justify-center rounded-full bg-white border border-gray-200 px-4 py-2 text-sm font-bold;
+    @apply inline-flex items-center gap-1.5 rounded-full bg-surface
+           px-3.5 py-1.5 text-[13px] font-medium text-ink-2 whitespace-nowrap;
+    box-shadow: inset 0 0 0 1px var(--hairline);
   }
+  .chip-active {
+    @apply bg-ink text-white;
+    box-shadow: none;
+  }
+
   .card {
-    @apply bg-white rounded-[24px] shadow-card p-6;
+    @apply bg-surface rounded-surface p-6 shadow-e1;
+    box-shadow: inset 0 0 0 1px var(--hairline), 0 1px 2px rgba(20, 19, 26, 0.04);
   }
+
+  /* Answer option: full-width, generous, unmistakably tappable. */
+  .option {
+    @apply w-full text-left rounded-well px-5 py-4 bg-surface text-ink
+           transition-all duration-240 ease-composed;
+    box-shadow: inset 0 0 0 1px var(--hairline);
+  }
+  .option:hover { box-shadow: inset 0 0 0 1px rgba(20, 19, 26, 0.18); }
+  .option[data-selected='true'] {
+    @apply bg-ink text-white;
+    box-shadow: none;
+  }
+
   .amber-banner {
-    @apply bg-brand-amber/20 border border-brand-amber text-brand-ink rounded-xl px-4 py-3 text-sm;
+    @apply rounded-well px-4 py-3 text-sm text-ink;
+    background: rgba(251, 217, 181, 0.35);
+    box-shadow: inset 0 0 0 1px rgba(251, 217, 181, 0.9);
   }
 }
 
 @layer utilities {
-  .neo-glass {
-    @apply bg-white/20 backdrop-blur-xl border border-white/40 shadow-lg;
+  /* ── The bloom ────────────────────────────────────────────────────────────
+     Painted as stacked radial-gradients, NOT filter: blur(). A 120px blur on a
+     viewport-sized element drops a budget Android under 30fps; this costs
+     nothing. Temperature encodes state — see DESIGN.md §1.                   */
+  .bloom {
+    position: absolute;
+    inset: -20%;
+    pointer-events: none;
+    z-index: 0;
+    background-repeat: no-repeat;
   }
-  .neo-glass-dark {
-    @apply bg-black/40 backdrop-blur-3xl border border-white/10 shadow-2xl;
+
+  .bloom-cool {
+    background-image:
+      radial-gradient(38% 44% at 22% 28%, var(--bloom-lavender) 0%, transparent 68%),
+      radial-gradient(42% 40% at 76% 22%, var(--bloom-sky) 0%, transparent 66%),
+      radial-gradient(46% 46% at 58% 74%, var(--bloom-mint) 0%, transparent 70%);
+    opacity: 0.55;
   }
-  .text-shadow-glow {
-    text-shadow: 0 0 20px rgba(0, 122, 255, 0.4);
+  .bloom-neutral {
+    background-image:
+      radial-gradient(40% 44% at 18% 32%, var(--bloom-mint) 0%, transparent 68%),
+      radial-gradient(44% 40% at 78% 26%, var(--bloom-lavender) 0%, transparent 66%),
+      radial-gradient(46% 48% at 54% 76%, var(--bloom-sky) 0%, transparent 70%);
+    opacity: 0.5;
+  }
+  .bloom-warm {
+    background-image:
+      radial-gradient(40% 46% at 24% 30%, var(--bloom-peach) 0%, transparent 68%),
+      radial-gradient(44% 42% at 74% 24%, var(--bloom-blush) 0%, transparent 66%),
+      radial-gradient(48% 48% at 56% 76%, var(--bloom-lavender) 0%, transparent 70%);
+    opacity: 0.58;
+  }
+  /* Content screens: present but never competing with a scheme name. */
+  .bloom-quiet { opacity: 0.09; }
+
+  .tabular { font-variant-numeric: tabular-nums; }
+
+  /* Entrance that CANNOT hide content.
+     Opacity stays 1 throughout — only the translate is animated. JS-driven
+     entrances (framer-motion) run off requestAnimationFrame, which the renderer
+     suspends whenever it treats the surface as non-visible; when that happened
+     the reveal's text sat at opacity:0 permanently and the citizen saw a blank
+     screen at the single most important moment in the product. Motion is an
+     enhancement here, never the thing that makes text appear. */
+  .enter {
+    animation: enter-rise 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  @keyframes enter-rise {
+    from { transform: translate3d(0, 14px, 0); }
+    to   { transform: translate3d(0, 0, 0); }
   }
 }
 
-/* Waveform bars */
-.wave-bar {
-  display: inline-block;
-  width: 4px;
-  margin: 0 2px;
-  background: currentColor;
-  border-radius: 2px;
-  transform-origin: center;
-  animation: wave 1s ease-in-out infinite;
-}
-.wave-bar:nth-child(1) { animation-delay: 0s; }
-.wave-bar:nth-child(2) { animation-delay: 0.1s; }
-.wave-bar:nth-child(3) { animation-delay: 0.2s; }
-.wave-bar:nth-child(4) { animation-delay: 0.3s; }
-.wave-bar:nth-child(5) { animation-delay: 0.4s; }
-
-/* SVG draw animation */
-@keyframes draw-check {
-  from { stroke-dashoffset: 100; }
-  to { stroke-dashoffset: 0; }
-}
-.check-draw {
-  stroke-dasharray: 100;
-  stroke-dashoffset: 100;
-  animation: draw-check 0.8s ease-out forwards;
+/* Motion is composed, not slow. A citizen on a metered connection should never
+   be waiting on an animation. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }

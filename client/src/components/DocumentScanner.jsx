@@ -2,9 +2,19 @@
  * DocumentScanner.jsx
  * Live camera capture → /api/extract-document → auto-fills vault fields.
  * Ported from mridah-shivakumar/Sevai-TN_with_camera_integration.
+ *
+ * The camera pipeline below (enumeration, getUserMedia fallback, canvas
+ * capture, the /api/extract-document POST) is untouched. Only the surface has
+ * changed: the brand-green gradient trigger and the black chrome are gone.
+ *
+ * The video panel itself stays dark on purpose — it is the one place in the
+ * product where a dark field is functional rather than decorative. A card held
+ * up to the lens reads best against a neutral dark surround, and the light UI
+ * would otherwise bleed into the framing guide. It sits inside a normal light
+ * card so it reads as a viewfinder set into the page, not a mode switch.
  */
 import { useEffect, useRef, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 
 export default function DocumentScanner({ onDataExtracted, lang = 'en', autoOpen = false, onClose }) {
   const [isOpen, setIsOpen] = useState(autoOpen);
@@ -18,6 +28,8 @@ export default function DocumentScanner({ onDataExtracted, lang = 'en', autoOpen
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const canvasRef = useRef(null);
+
+  const ta = lang === 'ta';
 
   // Enumerate cameras on mount
   useEffect(() => {
@@ -119,15 +131,20 @@ export default function DocumentScanner({ onDataExtracted, lang = 'en', autoOpen
     return (
       <button
         onClick={() => openCamera(selectedDeviceId)}
-        className="w-full flex items-center justify-center gap-3 p-3 rounded-xl bg-gradient-to-r from-brand-green to-brand-green-dark text-white shadow active:scale-95 transition-transform text-sm font-semibold"
+        className="option flex items-center gap-3.5"
+        lang={lang}
       >
-        <span className="text-xl">📸</span>
-        <div className="text-left">
-          <div className="font-bold">{lang === 'ta' ? 'ஸ்மார்ட் ஸ்கேன்' : 'Smart Scan'}</div>
-          <div className="text-xs opacity-80">
-            {lang === 'ta' ? 'கேமரா மூலம் தானாக நிரப்பு' : 'Auto-fill using camera'}
-          </div>
-        </div>
+        <span className="w-10 h-10 rounded-full bg-surface-sub grid place-items-center shrink-0 text-ink">
+          <CameraGlyph />
+        </span>
+        <span className="min-w-0">
+          <span className="block font-semibold text-[15px] text-ink">
+            {ta ? 'ஸ்மார்ட் ஸ்கேன்' : 'Smart Scan'}
+          </span>
+          <span className="block text-[13px] text-muted leading-snug">
+            {ta ? 'கேமரா மூலம் தானாக நிரப்பு' : 'Auto-fill using your camera'}
+          </span>
+        </span>
       </button>
     );
   }
@@ -135,13 +152,26 @@ export default function DocumentScanner({ onDataExtracted, lang = 'en', autoOpen
   // ── Extracting state ─────────────────────────────────────────────────────
   if (isExtracting) {
     return (
-      <div className="rounded-2xl overflow-hidden bg-brand-bg border border-gray-200 h-52 flex flex-col items-center justify-center gap-3">
-        <div className="text-4xl animate-bounce">📄</div>
-        <div className="font-bold text-brand-ink text-center">
-          {lang === 'ta' ? 'தரவை பிரித்தெடுக்கிறது...' : 'Extracting data...'}
+      <div className="card flex flex-col items-center justify-center text-center gap-3 min-h-[208px]">
+        <span className="w-11 h-11 rounded-full bg-surface-sub grid place-items-center text-ink">
+          <DocumentGlyph />
+        </span>
+        <div className="text-[16px] font-semibold text-ink" lang={lang}>
+          {ta ? 'தரவை பிரித்தெடுக்கிறது…' : 'Reading your document…'}
         </div>
-        <div className="text-xs text-brand-muted text-center max-w-[220px]">
-          {lang === 'ta' ? 'செயற்கை நுண்ணறிவு ஆவணத்தைப் படிக்கிறது' : 'AI is reading your document'}
+        <div className="text-[13px] text-muted max-w-[240px] leading-snug" lang={lang}>
+          {ta ? 'ஆவணத்திலிருந்து விவரங்கள் எடுக்கப்படுகின்றன' : 'Pulling the details off the card'}
+        </div>
+        <div
+          className="mt-1 h-[3px] w-40 rounded-full bg-surface-sub overflow-hidden"
+          style={{ boxShadow: 'inset 0 0 0 1px var(--hairline)' }}
+        >
+          <motion.div
+            initial={{ width: '10%' }}
+            animate={{ width: '92%' }}
+            transition={{ duration: 2.4, ease: [0.22, 1, 0.36, 1] }}
+            className="h-full rounded-full bg-ink"
+          />
         </div>
       </div>
     );
@@ -149,91 +179,140 @@ export default function DocumentScanner({ onDataExtracted, lang = 'en', autoOpen
 
   // ── Live camera view ─────────────────────────────────────────────────────
   return (
-    <div className="rounded-2xl overflow-hidden bg-black shadow-xl border border-gray-800">
+    <div className="card !p-4">
       <canvas ref={canvasRef} className="hidden" />
 
-      <div className="bg-black text-white p-3">
-        {/* Header */}
-        <div className="flex justify-between items-center mb-3">
-          <h3 className="font-bold text-sm flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-            {lang === 'ta' ? 'கேமரா நேரடி காட்சி' : 'Live Camera'}
-          </h3>
-          <button
-            onClick={cancelScanner}
-            className="bg-white/20 hover:bg-white/30 rounded-full w-8 h-8 flex items-center justify-center text-sm transition-colors"
-          >
-            ✕
-          </button>
+      {/* Header */}
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="w-1.5 h-1.5 rounded-full bg-ink animate-pulse-slow shrink-0" aria-hidden="true" />
+          <span className="u-meta" lang={lang}>
+            {ta ? 'கேமரா நேரடி காட்சி' : 'Live camera'}
+          </span>
         </div>
+        <button
+          onClick={cancelScanner}
+          className="btn-ghost compact !px-3 !py-1.5 text-[13px] shrink-0"
+          aria-label={ta ? 'மூடு' : 'Close'}
+          lang={lang}
+        >
+          {ta ? 'மூடு' : 'Close'}
+        </button>
+      </div>
 
-        {/* Video feed */}
-        <div className="relative rounded-xl overflow-hidden bg-gray-900 border border-white/10">
-          {!isCasting && !errorMsg && (
-            <div className="absolute inset-0 flex items-center justify-center h-40">
-              <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-            </div>
-          )}
-          <video
-            ref={videoRef}
-            autoPlay
-            playsInline
-            muted
-            onPlay={() => setIsCasting(true)}
-            className={`w-full h-auto max-h-[45vh] object-cover ${errorMsg ? 'hidden' : 'block'}`}
-          />
-          {/* Document guide overlay */}
-          {isCasting && !errorMsg && (
-            <div className="absolute inset-0 border-2 border-dashed border-white/40 m-5 rounded-lg shadow-[0_0_0_999px_rgba(0,0,0,0.45)] pointer-events-none" />
-          )}
-          {errorMsg && (
-            <div className="p-8 text-center text-red-400 bg-red-400/10 h-40 flex items-center justify-center">
-              {errorMsg}
-            </div>
-          )}
-        </div>
-
-        {/* Camera selector (multi-camera devices) */}
-        {devices.length > 1 && (
-          <div className="mt-3 px-1">
-            <label className="text-xs text-white/60 block mb-1">
-              {lang === 'ta' ? 'கேமரா தேர்வு:' : 'Select camera:'}
-            </label>
-            <select
-              value={selectedDeviceId}
-              onChange={handleSwitchCamera}
-              className="w-full bg-gray-800 text-white border border-gray-600 rounded-lg px-3 py-1.5 text-sm focus:outline-none"
-            >
-              {devices.map((d, i) => (
-                <option key={d.deviceId} value={d.deviceId}>
-                  {d.label || `Camera ${i + 1}`}
-                </option>
-              ))}
-            </select>
+      {/* Viewfinder. Dark by function — a document reads best against neutral
+          dark, and the framing guide needs contrast to be visible at all. */}
+      <div className="relative rounded-well overflow-hidden bg-[#14131A]">
+        {!isCasting && !errorMsg && (
+          <div className="absolute inset-0 flex items-center justify-center h-40 z-10">
+            <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
           </div>
         )}
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          onPlay={() => setIsCasting(true)}
+          className={`w-full h-auto max-h-[45vh] object-cover ${errorMsg ? 'hidden' : 'block'}`}
+        />
+        {/* Document guide overlay */}
+        {isCasting && !errorMsg && (
+          <div className="absolute inset-0 border border-white/45 m-5 rounded-[10px] shadow-[0_0_0_999px_rgba(20,19,26,0.5)] pointer-events-none" />
+        )}
+        {errorMsg && (
+          <div className="p-8 h-40 flex items-center justify-center text-center text-[14px] text-white/80" lang={lang}>
+            {errorMsg}
+          </div>
+        )}
+      </div>
 
-        {/* Capture button */}
-        <div className="mt-4 flex justify-center pb-1">
-          {errorMsg ? (
-            <button
-              onClick={() => openCamera(selectedDeviceId)}
-              className="px-6 py-2 bg-white/10 rounded-full font-bold text-sm"
-            >
-              {lang === 'ta' ? 'மீண்டும் முயற்சிக்கவும்' : 'Try Again'}
-            </button>
-          ) : (
+      {/* Camera selector (multi-camera devices) */}
+      {devices.length > 1 && (
+        <div className="mt-3">
+          <label className="u-meta block mb-1.5" htmlFor="sevai-camera-select" lang={lang}>
+            {ta ? 'கேமரா தேர்வு' : 'Select camera'}
+          </label>
+          <select
+            id="sevai-camera-select"
+            value={selectedDeviceId}
+            onChange={handleSwitchCamera}
+            className="w-full rounded-well bg-surface text-ink text-[14px] px-4 py-2.5
+                       focus:outline-none focus:ring-2 focus:ring-ink/15"
+            style={{ boxShadow: 'inset 0 0 0 1px var(--hairline)' }}
+          >
+            {devices.map((d, i) => (
+              <option key={d.deviceId} value={d.deviceId}>
+                {d.label || `Camera ${i + 1}`}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* Capture */}
+      <div className="mt-4 flex flex-col items-center gap-2">
+        {errorMsg ? (
+          <button onClick={() => openCamera(selectedDeviceId)} className="btn-secondary compact !py-3" lang={lang}>
+            {ta ? 'மீண்டும் முயற்சிக்கவும்' : 'Try again'}
+          </button>
+        ) : (
+          <>
             <button
               onClick={captureAndExtract}
               disabled={!isCasting}
-              className="bg-white text-black font-bold h-16 w-16 rounded-full flex items-center justify-center shadow-[0_0_0_4px_rgba(255,255,255,0.3)] active:scale-95 transition-transform disabled:opacity-50"
-              aria-label={lang === 'ta' ? 'படம் எடு' : 'Capture'}
+              className="w-16 h-16 rounded-full bg-ink text-white grid place-items-center
+                         shadow-e2 transition-all duration-240 ease-composed
+                         active:scale-[0.96] disabled:opacity-35 disabled:shadow-none"
+              aria-label={ta ? 'படம் எடு' : 'Capture'}
             >
-              <span className="text-2xl">📷</span>
+              <CameraGlyph />
             </button>
-          )}
-        </div>
+            <span className="u-meta" lang={lang}>
+              {ta ? 'ஆவணத்தை சட்டத்திற்குள் வையுங்கள்' : 'Fit the document in the frame'}
+            </span>
+          </>
+        )}
       </div>
     </div>
+  );
+}
+
+function CameraGlyph() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="22"
+      height="22"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M4 8.5h2.6l1.3-2h8.2l1.3 2H20a1 1 0 0 1 1 1V18a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5a1 1 0 0 1 1-1Z" />
+      <circle cx="12" cy="13.5" r="3.4" />
+    </svg>
+  );
+}
+
+function DocumentGlyph() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="20"
+      height="20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7l-4-4Z" />
+      <path d="M14 3v4h4" />
+      <path d="M9 12h6M9 16h4" />
+    </svg>
   );
 }

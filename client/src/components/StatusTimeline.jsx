@@ -1,125 +1,250 @@
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { t, tf } from '../data/strings.js';
-import { SCHEME_BY_ID } from '../data/schemes.js';
+import { useSchemes, getSchemeById } from '../utils/schemesStore.js';
+import { useVault } from '../hooks/useVault.js';
+import { formatBenefit, benefitToneClass } from '../utils/formatters.js';
+import { MatchReason } from './Thread.jsx';
 
-const stages = ['submitted', 'under_review', 'final'];
-
-export default function StatusTimeline({ app, lang }) {
-  const scheme = SCHEME_BY_ID[app.scheme_id];
+/**
+ * StatusTimeline — one tracked application.
+ *
+ * v2 notes:
+ *  - `SCHEME_BY_ID` is gone. The scheme is looked up through schemesStore, which
+ *    is asynchronous, so this component has three states rather than one: shards
+ *    in flight, scheme found, scheme genuinely absent (a stored application for
+ *    a scheme that is no longer in this citizen's shards). It never returns null
+ *    on a real application — losing a citizen's submitted application from the
+ *    list because a fetch had not resolved is the worst possible failure here.
+ *  - The mock SMS quotes a figure ONLY when the scheme pays cash. The old code
+ *    put `benefit_amount` into "₹X will be credited to your account", which for
+ *    a credit-linked scheme promised a citizen that their loan ceiling was about
+ *    to arrive in their bank account.
+ *  - The timeline itself is now hairlines and ink dots; no filled colour bars.
+ */
+export default function StatusTimeline({ app, lang = 'en' }) {
+  const { byId, loading } = useSchemes();
+  const { vault } = useVault();
   const nav = useNavigate();
-  if (!scheme) return null;
+
+  const scheme = byId?.get?.(app.scheme_id) || getSchemeById(app.scheme_id);
+  const ta = lang === 'ta';
 
   const isApproved = app.status === 'approved';
   const isRejected = app.status === 'rejected';
-  const isReview = app.status === 'under_review' || (!isApproved && !isRejected);
 
   const nodes = [
     {
       key: 'submitted',
       label: t('status_submitted', lang),
       reached: true,
-      color: 'brand-green',
+      state: 'done',
     },
     {
       key: 'under_review',
       label: t('status_under_review', lang),
-      reached: isReview || isApproved || isRejected,
-      color: isRejected ? 'brand-amber' : 'brand-green',
+      reached: true,
+      state: 'done',
     },
     {
       key: 'final',
-      label: isApproved ? t('status_approved', lang) : isRejected ? t('status_rejected', lang) : t('status_under_review', lang),
+      label: isApproved
+        ? t('status_approved', lang)
+        : isRejected
+        ? t('status_rejected', lang)
+        : t('status_under_review', lang),
       reached: isApproved || isRejected,
-      color: isApproved ? 'brand-green' : isRejected ? 'brand-amber' : 'gray',
+      state: isApproved ? 'done' : isRejected ? 'attention' : 'pending',
     },
   ];
 
-  const plainCopy = isApproved
-    ? tf('status_plain_approved', lang, { name: scheme.name_plain })
-    : isRejected
-    ? tf('status_plain_rejected', lang, { name: scheme.name_plain, reason: app.reject_reason || (lang === 'ta' ? 'வருமான சான்றிதழ் இல்லை' : 'Income certificate missing') })
-    : tf('status_plain_review', lang, { name: scheme.name_plain });
+  // ── Shards still loading: hold the shape, say nothing we cannot defend ────
+  if (!scheme && loading) {
+    return (
+      <div className="card" aria-busy="true">
+        <div className="u-meta" lang={lang}>{t('status_submitted', lang)}</div>
+        <div className="mt-3 h-5 w-2/3 rounded-full bg-surface-sub" />
+        <div className="mt-2 h-5 w-1/3 rounded-full bg-surface-sub" />
+        <Rail nodes={nodes} lang={lang} />
+      </div>
+    );
+  }
 
-  // Mock SMS — Tamil or English depending on user's language
-  const shortName = scheme.name_plain.split(' ').slice(0, 4).join(' ');
-  const amt = scheme.benefit_amount ? `₹${scheme.benefit_amount.toLocaleString('en-IN')}` : '';
-  const smsMock = isApproved
-    ? lang === 'ta'
-      ? `உங்கள் ${shortName} விண்ணப்பம் அங்கீகரிக்கப்பட்டது.${amt ? ` ${amt} 7 நாட்களில் உங்கள் கணக்கில் வரவு வைக்கப்படும்.` : ''}`
-      : `Your ${shortName} application is approved.${amt ? ` ${amt} will be credited to your account within 7 days.` : ''}`
+  const name = scheme
+    ? (ta && scheme.name_ta ? scheme.name_ta : scheme.name_plain)
+    : null;
+
+  const b = scheme?.benefit || {};
+  const money = formatBenefit(b, lang);
+
+  const plainCopy = !name
+    ? null
+    : isApproved
+    ? tf('status_plain_approved', lang, { name })
     : isRejected
-    ? lang === 'ta'
+    ? tf('status_plain_rejected', lang, {
+        name,
+        reason:
+          app.reject_reason ||
+          (ta ? 'வருமான சான்றிதழ் இல்லை' : 'Income certificate missing'),
+      })
+    : tf('status_plain_review', lang, { name });
+
+  // Mock SMS. A rupee figure appears only where one is genuinely payable.
+  const shortName = name ? name.split(' ').slice(0, 4).join(' ') : null;
+  const cashClause = b.cash
+    ? ta
+      ? ` ${money.primary} 7 நாட்களில் உங்கள் கணக்கில் வரவு வைக்கப்படும்.`
+      : ` ${money.primary} will be credited to your account within 7 days.`
+    : '';
+
+  const smsMock = !shortName
+    ? null
+    : isApproved
+    ? ta
+      ? `உங்கள் ${shortName} விண்ணப்பம் அங்கீகரிக்கப்பட்டது.${cashClause}`
+      : `Your ${shortName} application is approved.${cashClause}`
+    : isRejected
+    ? ta
       ? `உங்கள் ${shortName} விண்ணப்பத்திற்கு கூடுதல் ஆவணங்கள் தேவை. மீண்டும் சமர்ப்பிக்கவும்.`
       : `Your ${shortName} application needs additional documents. Please resubmit with required docs.`
-    : lang === 'ta'
+    : ta
     ? `உங்கள் ${shortName} விண்ணப்பம் செயலில் உள்ளது. 5-7 நாட்களில் அறிவிக்கப்படும்.`
     : `Your ${shortName} application is under review. You will receive an update in 5-7 days.`;
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
+    <motion.article
+      initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
       className="card"
     >
-      <div className="flex items-start justify-between mb-4">
-        <div className="min-w-0">
-          <h3 className="font-bold text-lg text-brand-ink leading-tight">{scheme.name_plain}</h3>
-          <div className="text-xs text-brand-muted mt-0.5">{scheme.name_official}</div>
-        </div>
+      <div className="flex items-center gap-2 mb-3">
+        <span className="u-meta" lang={lang}>
+          {ta ? 'விண்ணப்பம்' : 'Application'}
+        </span>
+        {scheme && (
+          <>
+            <span className="w-1 h-1 rounded-full bg-ink/20" />
+            <span className="u-meta" lang={lang}>
+              {scheme.nationwide
+                ? ta ? 'மத்தியம்' : 'Central'
+                : (scheme.state || (scheme.states || [])[0] || '')}
+            </span>
+          </>
+        )}
       </div>
 
-      {/* Vertical timeline */}
-      <div className="relative pl-6">
-        <div className="absolute left-2 top-2 bottom-2 w-[2px] bg-gray-200" />
-        {nodes.map((n, i) => (
-          <div key={n.key} className="relative mb-4 last:mb-0">
-            <div
-              className={`absolute -left-[22px] top-0.5 w-5 h-5 rounded-full border-2 flex items-center justify-center text-white text-[11px] ${
-                n.reached
-                  ? n.color === 'brand-green'
-                    ? 'bg-brand-green border-brand-green'
-                    : 'bg-brand-amber border-brand-amber'
-                  : 'bg-white border-gray-300'
-              }`}
-            >
-              {n.reached && i < nodes.length - 1 ? '✓' : ''}
-              {n.reached && i === nodes.length - 1 && isApproved && '✓'}
-              {n.reached && i === nodes.length - 1 && isRejected && '!'}
+      <div className="flex items-start justify-between gap-5">
+        <div className="min-w-0 flex-1">
+          <h3 className="u-scheme-name text-scheme font-semibold text-ink" lang={lang}>
+            {name || (ta ? 'திட்ட விவரம் இப்போது கிடைக்கவில்லை' : 'Scheme details unavailable')}
+          </h3>
+          {!scheme && (
+            <p className="text-[13px] text-muted mt-1 tabular" lang={lang}>
+              {ta ? 'குறியீடு' : 'Reference'}: {app.scheme_id}
+            </p>
+          )}
+        </div>
+
+        {/* Only cash takes the display face. Nothing here is ever summed. */}
+        {scheme && b.cash ? (
+          <div className="shrink-0 text-right">
+            <div className="u-display tabular text-[22px] leading-none text-ink">
+              {money.primary}
             </div>
-            <div className={`text-sm font-semibold ${n.reached ? 'text-brand-ink' : 'text-gray-400'}`}>
-              {n.label}
-            </div>
+            <div className="u-meta mt-1" lang={lang}>{money.secondary}</div>
           </div>
-        ))}
+        ) : scheme ? (
+          <div className={`shrink-0 text-right text-[13px] ${benefitToneClass(money.tone)}`}>
+            <div className="font-medium">{money.primary}</div>
+            <div className="text-muted">{money.secondary}</div>
+          </div>
+        ) : null}
       </div>
 
-      {/* Plain-language status sentence */}
-      <div
-        className={`mt-3 rounded-xl p-3 text-sm ${
-          isApproved ? 'bg-brand-green/10 text-brand-green-dark' : isRejected ? 'amber-banner' : 'bg-gray-50 text-brand-ink'
-        }`}
-      >
-        {plainCopy}
-      </div>
-
-      {/* Mock SMS preview */}
-      <div className="mt-3 bg-gray-900 text-white rounded-xl p-3">
-        <div className="text-[10px] uppercase tracking-widest opacity-70 mb-1">
-          {t('mock_sms_label', lang)}
+      {/* A loan ceiling is not an amount being paid out on approval. */}
+      {scheme && b.cash && b.loan_ceiling ? (
+        <div className="well mt-3 px-4 py-2.5 flex items-center justify-between gap-3">
+          <span className="text-[13px] text-muted" lang={lang}>
+            ↩ {ta ? 'கடன் வசதி — திருப்பிச் செலுத்த வேண்டும்' : 'credit available — to be repaid'}
+          </span>
+          <span className="tabular text-[14px] font-medium text-muted shrink-0">
+            {formatBenefit({ loan_ceiling: b.loan_ceiling }, lang).primary}
+          </span>
         </div>
-        <div className="text-sm font-mono leading-snug">{smsMock}</div>
-      </div>
+      ) : null}
 
-      {/* Fix & resubmit */}
-      {isRejected && (
+      <Rail nodes={nodes} lang={lang} />
+
+      {plainCopy && (
+        <div
+          className={isRejected ? 'amber-banner mt-5' : 'well mt-5 px-4 py-3 text-sm text-ink-2'}
+          lang={lang}
+        >
+          {plainCopy}
+        </div>
+      )}
+
+      {smsMock && (
+        <div className="well mt-3 px-4 py-3">
+          <div className="u-meta" lang={lang}>{t('mock_sms_label', lang)}</div>
+          <p className="mt-1.5 text-[14px] text-ink-2 leading-relaxed" lang={lang}>
+            {smsMock}
+          </p>
+        </div>
+      )}
+
+      {/* Why this scheme was surfaced in the first place, still on the artefact. */}
+      {scheme && vault && (
+        <MatchReason scheme={scheme} profile={vault} lang={lang} className="mt-5" />
+      )}
+
+      {isRejected && scheme && (
         <button
           onClick={() => nav(`/apply/${scheme.id}`)}
-          className="btn-saffron w-full mt-3"
+          className="btn-primary w-full mt-5"
+          lang={lang}
         >
           {t('fix_resubmit', lang)}
         </button>
       )}
-    </motion.div>
+    </motion.article>
+  );
+}
+
+/**
+ * The vertical rail: a single hairline with ink dots on it. A reached stage is a
+ * filled ink dot; a stage still to come is an empty dot with a hairline ring; a
+ * stage needing the citizen's attention takes the peach bloom stop, which is the
+ * only saturated colour the system allows.
+ */
+function Rail({ nodes, lang }) {
+  return (
+    <div className="relative pl-7 mt-5">
+      <div className="absolute left-[6px] top-2 bottom-2 w-px bg-hairline" aria-hidden="true" />
+      {nodes.map((n) => (
+        <div key={n.key} className="relative mb-4 last:mb-0">
+          <span
+            aria-hidden="true"
+            className={`absolute -left-[28px] top-[5px] w-[13px] h-[13px] rounded-full ${
+              n.state === 'done'
+                ? 'bg-ink'
+                : n.state === 'attention'
+                ? 'bg-bloom-peach ring-1 ring-ink/15'
+                : 'bg-surface ring-1 ring-hairline'
+            }`}
+          />
+          <div
+            className={`text-[15px] ${
+              n.reached ? 'text-ink font-medium' : 'text-muted'
+            }`}
+            lang={lang}
+          >
+            {n.label}
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }

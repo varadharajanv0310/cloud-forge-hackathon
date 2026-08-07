@@ -5,3 +5,18 @@ build/
 .DS_Store
 *.log
 .vite/
+
+# ── Scraper intermediates ────────────────────────────────────────────────────
+# Regenerable caches. raw_schemes.json IS committed deliberately, so
+# normalize_schemes.py can be re-run and iterated on without repeating the
+# ~50-minute harvest; these two are only resume/lookup state for that harvest.
+server/scraper/fetch_progress.json
+server/scraper/facet_index.json
+server/scraper/scrape_progress.json
+
+# ── Agent skill payloads ─────────────────────────────────────────────────────
+# Installed via `npx impeccable install` / `npx skills add`. skills-lock.json is
+# committed so they can be reinstalled; the packages themselves are third-party
+# tooling, not project source.
+.agents/
+.claude/skills/

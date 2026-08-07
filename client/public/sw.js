@@ -3,8 +3,13 @@
  * Caches scheme data + static assets. Handles push notifications.
  */
 
-const CACHE_NAME = 'sevai-v2';
+const CACHE_NAME = 'sevai-v3';
 const PRECACHE = ['/', '/index.html', '/favicon.svg', '/manifest.json'];
+
+// Cache-first is correct in production — the offline story depends on it — but
+// on a dev host it serves yesterday's CSS and JS forever, with no error and no
+// obvious cause. Every fetch handler below no-ops on localhost.
+const DEV_HOST = ['localhost', '127.0.0.1', '[::1]'].includes(self.location.hostname);
 
 // ── Install: precache static shell ──────────────────────────────────────────
 self.addEventListener('install', (e) => {
@@ -25,6 +30,7 @@ self.addEventListener('activate', (e) => {
 
 // ── Fetch: cache-first for GET requests ─────────────────────────────────────
 self.addEventListener('fetch', (e) => {
+  if (DEV_HOST) return;                    // never cache during development
   if (e.request.method !== 'GET') return;
   // Don't cache API calls — always network for /api/*
   if (e.request.url.includes('/api/')) return;

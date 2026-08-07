@@ -83,17 +83,46 @@ export const clearVault = () => {
 
 export const vaultExists = () => !!localStorage.getItem(VAULT_KEY);
 
+// v3 profile. `district` is gone — with 36 states a district list is unusable,
+// and no scheme in the corpus gates below state level. Every field below is
+// justified by a measured count of schemes that gate on it; see
+// data/profileSchema.js for the question flow and the counts.
 export const EMPTY_VAULT = {
   name: '',
+
+  // base — asked of everyone
+  state: null,                    // replaces district; decides the candidate pool
   age: null,
   gender: null,
   caste: null,
+  ration_card: null,              // primary poverty signal, replaces annual_income
   occupation: null,
-  annual_income: null,
-  district: null,
-  taluk: '',
+  disability: null,               // 'none' | 'under40' | 'over40' | 'unknown'
+
+  // student branch — the 1,139-scheme education block
+  student_level: null,            // class_1_8 … phd
+  last_exam_pct: null,
+  institution_type: null,         // government | aided | private
+
+  // farmer branch
+  land_tenure: null,              // owner | tenant | sharecropper | landless
   land_acres: null,
-  ration_card_number: '',
+  livestock: null,
+
+  // worker branch
+  welfare_board_registered: null,
+
+  // women branch
+  maternity: null,                // pregnant | lactating | neither
+  marital_status: null,
+
+  // senior / household
+  drawing_pension: null,
+  housing_status: null,
+
+  // optional refinement — never required, since citizens rarely know it
+  annual_income: null,
+
   aadhaar_last4: '',
   languages_preferred: ['ta'],
   onboarding_complete: false,
