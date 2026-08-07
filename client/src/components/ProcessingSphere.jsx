@@ -1,56 +1,44 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { motion, useReducedMotion } from 'framer-motion';
+import { useReducedMotion } from 'framer-motion';
 import { profileToChips } from './Thread.jsx';
 
 /**
- * ProcessingSphere — the moment before someone finds out what they are owed.
+ * ProcessingSphere — ported from the Claude Design source (Sevai.dc.html, isProc).
  *
- * This is the emotional peak of the product, so it is built to do one specific
- * thing: show its work. A spinner says "wait"; this says "I am reading what you
- * told me, and here is how much I am looking through." Trust is the product's
- * whole proposition, and this is where it is either earned or lost.
+ * The moment before someone finds out what they are owed. It is built to show
+ * its work rather than to entertain: a real count of the schemes being checked,
+ * and a step list that names what is happening. A spinner says "wait"; this says
+ * "I am reading what you told me, and here is how much I am looking through."
  *
- * The sphere is literally made of the citizen's own answers — the Thread chips
- * collapse inward and become it — so the number that comes out the other side
- * visibly came from what they said.
- *
- * PRIVACY: the narration names *categories*, never values. This is frequently a
- * shared phone. "Checking community schemes" is safe on a screen someone else
- * can see; rendering the citizen's caste in 40px type is not.
+ * PRIVACY: the steps name *categories*, never values. This is frequently a
+ * shared phone — "community schemes" is safe on a screen someone else can see,
+ * the citizen's actual caste in 15px type is not.
  */
 
-const DURATION = 4200; // ms — long enough to feel considered, short enough to respect
+const DURATION = 4200;
+const R = 122;
+const CIRC = 2 * Math.PI * R; // 766.5, matching the source
 
 export default function ProcessingSphere({ profile, lang = 'en', schemeCount = 0, onDone }) {
   const reduce = useReducedMotion();
-  const [t, setT] = useState(0); // 0 → 1
-  const raf = useRef(0);
+  const [t, setT] = useState(0);
   const started = useRef(0);
 
-  const chips = useMemo(() => profileToChips(profile, lang).slice(0, 7), [profile, lang]);
-
-  const steps = useMemo(() => {
-    const ta = lang === 'ta';
-    const s = [
-      { at: 0.00, en: 'Reading your answers', ta: 'உங்கள் பதில்களைப் படிக்கிறோம்' },
-      { at: 0.18, en: 'Central schemes', ta: 'மத்தியத் திட்டங்கள்' },
-      {
-        at: 0.36,
-        en: profile?.state ? `${profile.state} schemes` : 'State schemes',
-        ta: profile?.state ? `${profile.state} திட்டங்கள்` : 'மாநிலத் திட்டங்கள்',
-      },
-      { at: 0.54, en: 'Matching your work and age', ta: 'வேலை மற்றும் வயதைப் பொருத்துகிறோம்' },
-      { at: 0.70, en: 'Community and income schemes', ta: 'சமூக மற்றும் வருமானத் திட்டங்கள்' },
-      { at: 0.86, en: 'Checking what each one is worth', ta: 'ஒவ்வொன்றின் மதிப்பைச் சரிபார்க்கிறோம்' },
-    ];
-    return s.map((x) => ({ ...x, label: ta ? x.ta : x.en }));
-  }, [profile, lang]);
-
-  // `onDone` is a fresh closure on every parent render, so depending on it here
-  // restarted the countdown on each re-render — the sphere spun forever and
-  // never handed off to the reveal. Hold it in a ref and run the timeline once.
+  // onDone is a fresh closure on every parent render; depending on it here
+  // restarted the countdown each time and the sphere never handed off.
   const doneRef = useRef(onDone);
   doneRef.current = onDone;
+
+  const chips = useMemo(() => profileToChips(profile, lang).slice(0, 6), [profile, lang]);
+
+  const steps = useMemo(() => ([
+    { at: .00, en: 'Reading your answers', ta: 'உங்கள் பதில்களைப் படிக்கிறோம்' },
+    { at: .20, en: 'Central schemes', ta: 'மத்தியத் திட்டங்கள்' },
+    { at: .40, en: `${profile?.state || 'State'} schemes`, ta: 'மாநிலத் திட்டங்கள்' },
+    { at: .58, en: 'Matching your work and age', ta: 'வேலை மற்றும் வயதைப் பொருத்துகிறோம்' },
+    { at: .76, en: 'Community and income schemes', ta: 'சமூக மற்றும் வருமானத் திட்டங்கள்' },
+    { at: .90, en: 'Checking what each one is worth', ta: 'ஒவ்வொன்றின் மதிப்பைச் சரிபார்க்கிறோம்' },
+  ]), [profile]);
 
   useEffect(() => {
     if (reduce) {
@@ -58,129 +46,127 @@ export default function ProcessingSphere({ profile, lang = 'en', schemeCount = 0
       const id = setTimeout(() => doneRef.current?.(), 700);
       return () => clearTimeout(id);
     }
-    // Driven by an interval rather than requestAnimationFrame. rAF is throttled
-    // or suspended whenever the renderer considers the surface non-visible
-    // (backgrounded tab, some embedded/preview webviews), and when that happens
-    // the countdown silently never advances and the reveal is never reached.
-    // A ~60fps interval degrades gracefully instead of stopping dead.
+    // Interval, not requestAnimationFrame — rAF is suspended when the renderer
+    // treats the surface as non-visible, and the countdown would never advance.
     let settle;
     started.current = Date.now();
     const id = setInterval(() => {
-      const p = Math.min(1, (Date.now() - started.current) / DURATION);
-      // ease-out so the count decelerates into its final value rather than
-      // stopping dead — the arrival should feel like settling, not snapping.
-      setT(1 - Math.pow(1 - p, 3));
-      if (p >= 1) {
+      const pr = Math.min(1, (Date.now() - started.current) / DURATION);
+      setT(1 - Math.pow(1 - pr, 3));
+      if (pr >= 1) {
         clearInterval(id);
         settle = setTimeout(() => doneRef.current?.(), 520);
       }
     }, 16);
-    return () => {
-      clearInterval(id);
-      clearTimeout(settle);
-    };
+    return () => { clearInterval(id); clearTimeout(settle); };
   }, [reduce]);
 
   const counted = Math.round(t * schemeCount);
   const active = steps.reduce((acc, s, i) => (t >= s.at ? i : acc), 0);
 
-  // Ring geometry
-  const R = 132;
-  const C = 2 * Math.PI * R;
-
   return (
-    <div className="fixed inset-0 z-50 bg-canvas overflow-hidden">
+    <div className="fixed inset-0 z-50 bg-page overflow-hidden">
       <div
-        className={`bloom ${t < 0.6 ? 'bloom-cool' : 'bloom-warm'} transition-opacity duration-[1400ms]`}
+        className="absolute inset-0 pointer-events-none"
         aria-hidden="true"
+        style={{
+          background:
+            'radial-gradient(58% 34% at 22% 4%,rgba(132,212,221,.5) 0%,rgba(132,212,221,.22) 40%,rgba(132,212,221,0) 74%),' +
+            'radial-gradient(70% 40% at 60% 104%,rgba(248,201,156,.6) 0%,rgba(248,201,156,.26) 42%,rgba(248,201,156,0) 76%)',
+        }}
       />
 
-      <div className="relative z-10 h-full flex flex-col items-center justify-center px-6">
-        {/* ── the sphere ─────────────────────────────────────────────────── */}
-        <div className="relative" style={{ width: 320, height: 320 }}>
-          {/* chips collapsing inward — the sphere is made of their answers */}
-          {!reduce &&
-            chips.map((c, i) => {
-              const angle = (i / Math.max(1, chips.length)) * Math.PI * 2 - Math.PI / 2;
-              const start = 190;
-              const d = start * (1 - Math.min(1, t * 1.5));
-              return (
-                <motion.span
-                  key={c.key}
-                  className="chip absolute left-1/2 top-1/2 pointer-events-none"
-                  style={{
-                    transform: `translate(-50%,-50%) translate(${Math.cos(angle) * d}px, ${
-                      Math.sin(angle) * d
-                    }px) scale(${Math.max(0, 1 - t * 1.5)})`,
-                    opacity: Math.max(0, 1 - t * 1.6),
-                  }}
-                  lang={lang}
-                >
-                  {c.label}
-                </motion.span>
-              );
-            })}
+      <div className="relative flex flex-col h-full mx-auto w-full max-w-[520px] px-5 pt-6 pb-7">
+        <div className="mono text-[10.5px] tracking-[.14em] text-ink-55">Checking your schemes</div>
 
-          {/* orb — layered radial gradients, no filter:blur (see DESIGN.md §6) */}
-          <motion.div
-            className="absolute inset-8 rounded-full animate-sphere-pulse"
+        {/* ── the sphere ─────────────────────────────────────────────────
+            The citizen's answers collapse inward and become it. */}
+        <div className="flex-none h-[308px] relative mt-2 flex items-center justify-center">
+          <div
+            className="absolute rounded-full animate-svDrift"
             style={{
-              background: `
-                radial-gradient(60% 60% at 32% 30%, var(--bloom-peach) 0%, transparent 62%),
-                radial-gradient(58% 58% at 72% 34%, var(--bloom-blush) 0%, transparent 60%),
-                radial-gradient(64% 64% at 50% 74%, var(--bloom-lavender) 0%, transparent 66%),
-                radial-gradient(circle at 50% 50%, #fff 0%, rgba(255,255,255,0) 70%)`,
-              boxShadow: '0 24px 64px -24px rgba(20,19,26,.18)',
-              transform: `scale(${0.86 + t * 0.16})`,
+              width: 236, height: 236,
+              background:
+                'radial-gradient(48% 48% at 34% 30%,rgba(192,172,240,.95) 0%,rgba(192,172,240,.5) 44%,rgba(192,172,240,0) 74%),' +
+                'radial-gradient(46% 46% at 72% 40%,rgba(132,212,221,.9) 0%,rgba(132,212,221,.44) 46%,rgba(132,212,221,0) 76%),' +
+                'radial-gradient(52% 52% at 52% 78%,rgba(248,201,156,.92) 0%,rgba(248,201,156,.46) 46%,rgba(248,201,156,0) 76%),' +
+                'radial-gradient(40% 40% at 24% 68%,rgba(240,180,201,.75) 0%,rgba(240,180,201,0) 70%)',
             }}
-            aria-hidden="true"
           />
 
-          {/* progress ring */}
-          <svg className="absolute inset-0 -rotate-90" width="320" height="320" aria-hidden="true">
-            <circle cx="160" cy="160" r={R} fill="none" stroke="rgba(20,19,26,.07)" strokeWidth="1.5" />
-            <circle
-              cx="160" cy="160" r={R} fill="none"
-              stroke="var(--ink)" strokeWidth="1.5" strokeLinecap="round"
-              strokeDasharray={C} strokeDashoffset={C * (1 - t)}
-            />
+          <svg width="270" height="270" viewBox="0 0 270 270" className="absolute" style={{ transform: 'rotate(-90deg)' }} aria-hidden="true">
+            <circle cx="135" cy="135" r={R} fill="none" stroke="rgba(20,20,26,.10)" strokeWidth="1.5" />
+            <circle cx="135" cy="135" r={R} fill="none" stroke="#14141A" strokeWidth="1.5"
+                    strokeLinecap="round" strokeDasharray={CIRC} strokeDashoffset={CIRC * (1 - t)} />
           </svg>
 
-          {/* the count */}
-          <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <div className="u-display tabular text-[46px] text-ink leading-none">
+          {!reduce && chips.map((c, i) => {
+            const a = (i / Math.max(1, chips.length)) * Math.PI * 2 - Math.PI / 2;
+            const d = 165 * (1 - Math.min(1, t * 1.5));
+            return (
+              <span
+                key={c.key}
+                className="chip absolute left-1/2 top-1/2 pointer-events-none"
+                style={{
+                  transform: `translate(-50%,-50%) translate(${Math.cos(a) * d}px, ${Math.sin(a) * d}px) scale(${Math.max(0, 1 - t * 1.5)})`,
+                  opacity: Math.max(0, 1 - t * 1.6),
+                }}
+              >
+                {c.label}
+              </span>
+            );
+          })}
+
+          <div className="relative text-center">
+            <div className="tabular" style={{ fontSize: 46, fontWeight: 700, letterSpacing: '-.04em', lineHeight: 1 }}>
               {counted.toLocaleString('en-IN')}
             </div>
-            <div className="u-meta mt-2" lang={lang}>
-              {lang === 'ta' ? 'திட்டங்கள் சரிபார்க்கப்பட்டன' : 'schemes checked'}
+            <div className="mono text-[10px] tracking-[.13em] text-ink-70 mt-[7px]">
+              of {schemeCount.toLocaleString('en-IN')} checked
             </div>
           </div>
         </div>
 
-        {/* ── narration ──────────────────────────────────────────────────── */}
-        <div className="mt-12 h-7 relative w-full max-w-[420px] text-center">
-          {steps.map((s, i) => (
-            <motion.div
-              key={s.en}
-              className="absolute inset-x-0 text-[16px] text-ink-2"
-              initial={false}
-              animate={{
-                opacity: i === active ? 1 : 0,
-                y: i === active ? 0 : i < active ? -8 : 8,
-              }}
-              transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-              lang={lang}
-            >
-              {s.label}
-            </motion.div>
-          ))}
+        {/* ── steps ──────────────────────────────────────────────────────── */}
+        <div className="flex flex-col gap-[9px] mt-1.5">
+          {steps.map((s, i) => {
+            const done = i < active, now = i === active;
+            return (
+              <div key={s.en} className="flex items-center gap-3">
+                <div
+                  className="w-[9px] h-[9px] rounded-[2px] flex-none transition-colors duration-300"
+                  style={{ background: done || now ? '#14141A' : 'rgba(20,20,26,.16)' }}
+                />
+                <div className="min-w-0">
+                  <div
+                    className="text-[14.5px] leading-[1.35] transition-colors duration-300"
+                    style={{ color: now ? '#14141A' : done ? '#6C6C78' : '#B0B0BA', fontWeight: now ? 600 : 400 }}
+                  >
+                    {s.en}
+                  </div>
+                  <div className="ta text-[12.5px] leading-[1.45]" lang="ta"
+                       style={{ color: now ? '#6C6C78' : '#B0B0BA' }}>
+                    {s.ta}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
 
-        <p className="mt-3 text-[13px] text-muted text-center max-w-[38ch]" lang={lang}>
-          {lang === 'ta'
-            ? 'உங்கள் விவரங்கள் இந்த சாதனத்திலேயே உள்ளன.'
-            : 'Your details stay on this device.'}
-        </p>
+        <div className="flex-1" />
+
+        <div className="border-t border-rule-12 pt-3.5 flex gap-3 items-start">
+          <div className="w-[9px] h-[9px] rounded-[2px] bg-ink mt-1.5 flex-none" />
+          <div>
+            <div className="text-[13.5px] leading-[1.5] text-ink-90">
+              Nothing leaves this phone. The schemes are checked here, on the device.
+            </div>
+            <div className="ta text-[12.5px] text-ink-40 mt-1" lang="ta">
+              எதுவும் இந்த ஃபோனை விட்டு வெளியே செல்லாது.
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

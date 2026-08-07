@@ -1,91 +1,75 @@
 import { fileURLToPath } from 'url';
 import path from 'path';
 
-// Content globs are resolved against process.cwd(), not this file — so a dev
-// server started from anywhere other than client/ silently generates NO
-// utilities and the whole app renders unstyled. Anchor them to this file.
+// Content globs resolve against process.cwd(), not this file — a dev server
+// started from anywhere other than client/ would silently generate NO utilities
+// and the whole app would render unstyled. Anchor them to this file.
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 /** @type {import('tailwindcss').Config} */
-// Tokens mirror DESIGN.md. Change a value here, change it there — that file
-// carries the rationale, this one only carries the number.
+// Ported from the Claude Design source (Sevai.dc.html). Values live here;
+// the rationale lives in DESIGN.md and in the comments in src/index.css.
 export default {
   content: [path.join(here, 'index.html'), path.join(here, 'src/**/*.{js,jsx}')],
   theme: {
     extend: {
       colors: {
-        canvas: '#FBFAFC',
-        surface: '#FFFFFF',
-        'surface-sub': '#F6F5F9',
-        ink: '#14131A',
-        'ink-2': '#3D3A47',
-        muted: '#6E6B78',
-        hairline: 'rgba(20,19,26,0.08)',
-        bloom: {
-          lavender: '#C9BEEF',
-          sky: '#B8D4F0',
-          mint: '#BEEBD8',
-          peach: '#FBD9B5',
-          blush: '#F3C7DC',
+        page: '#FBFBFD',
+        shell: '#F4F4F7',
+        ink: {
+          DEFAULT: '#14141A',
+          90: '#25252E',
+          80: '#3B3B46',
+          70: '#44444F',
+          65: '#4A4A56',
+          60: '#55555F',
+          55: '#5C5C68',
+          45: '#6C6C78',
+          40: '#7A7A86',
+          30: '#8A8A95',
+          25: '#9A9AA6',
+          15: '#B0B0BA',
         },
-        // The legacy `brand-*` aliases are gone. Every screen is on the new
-        // tokens; keeping the old names alive would let the previous green /
-        // saffron / electric-blue language creep back in unnoticed.
+        rule: {
+          10: 'rgba(20,20,26,0.10)',
+          12: 'rgba(20,20,26,0.12)',
+          14: 'rgba(20,20,26,0.14)',
+          16: 'rgba(20,20,26,0.16)',
+          20: 'rgba(20,20,26,0.20)',
+          22: 'rgba(20,20,26,0.22)',
+        },
+        violet: { DEFAULT: '#5B45A8', sel: '#DCCDF7', mark: 'rgba(192,172,240,0.45)' },
+        sah: { ink: '#7A5410', ink2: '#9E7A2E', rule: 'rgba(158,110,26,0.45)' },
+        bloom: {
+          teal: '#84D4DD',
+          lav: '#C0ACF0',
+          peach: '#F8C99C',
+          pink: '#F0B4C9',
+        },
       },
       fontFamily: {
-        // Latin display, falling through to Noto Sans Tamil so a Tamil headline
-        // still lands on a designed face rather than a system fallback.
-        display: ['"Bricolage Grotesque"', '"Noto Sans Tamil"', '"Noto Sans"', 'system-ui', 'sans-serif'],
-        // Text + every Indian script on one harmonised metric.
-        sans: [
-          '"Noto Sans"', '"Noto Sans Tamil"', '"Noto Sans Devanagari"',
-          '"Noto Sans Telugu"', '"Noto Sans Bengali"', '"Noto Sans Kannada"',
-          '"Noto Sans Malayalam"', '"Noto Sans Gujarati"', '"Noto Sans Gurmukhi"',
-          '"Noto Sans Oriya"', 'system-ui', 'sans-serif',
-        ],
+        sans: ['Archivo', 'Helvetica', 'Arial', 'sans-serif'],
+        mono: ['"IBM Plex Mono"', 'ui-monospace', 'monospace'],
+        ta: ['"Noto Sans Tamil"', 'Archivo', 'sans-serif'],
       },
-      fontSize: {
-        meta: ['11px', { lineHeight: '1.2', letterSpacing: '0.09em' }],
-        body: ['16px', { lineHeight: '1.6' }],
-        lead: ['19px', { lineHeight: '1.5', letterSpacing: '-0.01em' }],
-        scheme: ['19px', { lineHeight: '1.35', letterSpacing: '-0.01em' }],
-        q: ['34px', { lineHeight: '1.12', letterSpacing: '-0.03em' }],
-        'q-md': ['44px', { lineHeight: '1.1', letterSpacing: '-0.03em' }],
-        'q-lg': ['56px', { lineHeight: '1.08', letterSpacing: '-0.03em' }],
-        figure: ['72px', { lineHeight: '1', letterSpacing: '-0.04em' }],
-        'figure-lg': ['104px', { lineHeight: '0.95', letterSpacing: '-0.045em' }],
-      },
-      borderRadius: { surface: '28px', well: '18px', bento: '24px' },
+      borderRadius: { panel: '6px', flat: '4px', shell: '8px' },
       boxShadow: {
-        e1: '0 1px 2px rgba(20,19,26,.04)',
-        e2: '0 8px 24px -12px rgba(20,19,26,.10)',
-        e3: '0 24px 64px -24px rgba(20,19,26,.16)',
-        card: '0 1px 2px rgba(20,19,26,.04)',
-        cardHover: '0 8px 24px -12px rgba(20,19,26,.10)',
+        lift: '0 14px 30px -12px rgba(20,20,26,.55)',
+        liftHover: '0 20px 38px -12px rgba(20,20,26,.6)',
+        shell: '0 40px 90px -30px rgba(20,20,26,.28)',
       },
-      transitionTimingFunction: { composed: 'cubic-bezier(.22,1,.36,1)' },
-      transitionDuration: { 240: '240ms', 320: '320ms' },
       keyframes: {
-        'bloom-drift': {
+        svDrift: {
           '0%,100%': { transform: 'translate3d(0,0,0) scale(1)' },
-          '50%': { transform: 'translate3d(2%,-2%,0) scale(1.06)' },
+          '50%': { transform: 'translate3d(0,-16px,0) scale(1.05)' },
         },
-        'sphere-pulse': {
-          '0%,100%': { transform: 'scale(1)', opacity: '.92' },
-          '50%': { transform: 'scale(1.035)', opacity: '1' },
-        },
-        rise: {
-          from: { opacity: '0', transform: 'translate3d(0,14px,0)' },
-          to: { opacity: '1', transform: 'translate3d(0,0,0)' },
-        },
-        wave: { '0%,100%': { transform: 'scaleY(0.4)' }, '50%': { transform: 'scaleY(1)' } },
+        svSpin: { to: { transform: 'rotate(360deg)' } },
+        svPulse: { '0%,100%': { opacity: '.55' }, '50%': { opacity: '1' } },
       },
       animation: {
-        'bloom-drift': 'bloom-drift 18s ease-in-out infinite',
-        'sphere-pulse': 'sphere-pulse 2.4s ease-in-out infinite',
-        rise: 'rise .32s cubic-bezier(.22,1,.36,1) both',
-        'pulse-slow': 'pulse 2.2s ease-in-out infinite',
-        wave: 'wave 1s ease-in-out infinite',
+        svDrift: 'svDrift 22s ease-in-out infinite',
+        svSpin: 'svSpin 1.1s linear infinite',
+        svPulse: 'svPulse 2.4s ease-in-out infinite',
       },
     },
   },

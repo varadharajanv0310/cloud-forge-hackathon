@@ -3,245 +3,226 @@
 @tailwind utilities;
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   Sevai design system. Rationale lives in /DESIGN.md.
+   Sevai design system — ported from the Claude Design source (Sevai.dc.html).
+
+   Editorial, not app-like: 4px radii, hairline rules, a mono meta face, and
+   English and Tamil shown TOGETHER rather than behind a language toggle.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 :root {
-  --canvas: #fbfafc;
-  --surface: #ffffff;
-  --surface-sub: #f6f5f9;
-  --ink: #14131a;
-  --ink-2: #3d3a47;
-  --muted: #6e6b78;
-  --hairline: rgba(20, 19, 26, 0.08);
+  /* surfaces */
+  --page: #fbfbfd;          /* app canvas */
+  --shell: #f4f4f7;         /* desktop page behind the app shell */
+  --white: #ffffff;
+  --panel: rgba(255, 255, 255, 0.62);
 
-  --bloom-lavender: #c9beef;
-  --bloom-sky: #b8d4f0;
-  --bloom-mint: #beebd8;
-  --bloom-peach: #fbd9b5;
-  --bloom-blush: #f3c7dc;
+  /* ink ramp — straight from the source */
+  --ink: #14141a;
+  --ink-90: #25252e;
+  --ink-80: #3b3b46;
+  --ink-70: #44444f;
+  --ink-65: #4a4a56;
+  --ink-60: #55555f;
+  --ink-55: #5c5c68;
+  --ink-45: #6c6c78;
+  --ink-40: #7a7a86;
+  --ink-30: #8a8a95;
+  --ink-25: #9a9aa6;
+  --ink-15: #b0b0ba;
 
-  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  /* hairlines */
+  --rule-10: rgba(20, 20, 26, 0.10);
+  --rule-12: rgba(20, 20, 26, 0.12);
+  --rule-14: rgba(20, 20, 26, 0.14);
+  --rule-16: rgba(20, 20, 26, 0.16);
+  --rule-20: rgba(20, 20, 26, 0.20);
+  --rule-22: rgba(20, 20, 26, 0.22);
+
+  /* accent — used for links and the highlight rule under emphasised words */
+  --violet: #5b45a8;
+  --violet-sel: #dccdf7;
+  --violet-mark: rgba(192, 172, 240, 0.45);
+
+  /* bloom stops */
+  --bloom-teal: 132, 212, 221;
+  --bloom-lav: 192, 172, 240;
+  --bloom-peach: 248, 201, 156;
+  --bloom-pink: 240, 180, 201;
+
+  /* sahayak — the one warm, deliberately different surface */
+  --sah-ink: #7a5410;
+  --sah-ink-2: #9e7a2e;
+  --sah-rule: rgba(158, 110, 26, 0.45);
+  --sah-bg: rgba(226, 164, 54, 0.09);
+  --sah-bg-hover: rgba(226, 164, 54, 0.16);
 }
 
-html,
-body,
-#root {
-  height: 100%;
-  width: 100%;
-  -webkit-tap-highlight-color: transparent;
-}
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; width: 100%; -webkit-tap-highlight-color: transparent; }
 
 body {
   margin: 0;
-  font-family: 'Noto Sans', 'Noto Sans Tamil', 'Noto Sans Devanagari',
-    'Noto Sans Telugu', 'Noto Sans Bengali', 'Noto Sans Kannada',
-    'Noto Sans Malayalam', 'Noto Sans Gujarati', 'Noto Sans Gurmukhi',
-    'Noto Sans Oriya', system-ui, sans-serif;
-  background-color: var(--canvas);
+  background: var(--page);
   color: var(--ink);
-  font-size: 16px;
-  line-height: 1.6;
-  overscroll-behavior-y: none;
+  font-family: Archivo, Helvetica, Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
+  overscroll-behavior-y: none;
 }
 
-button {
-  font-family: inherit;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-
-/* A shared phone with a cracked screen is the design target. */
-button,
-[role='button'] {
-  min-height: 52px;
-}
-button.compact {
-  min-height: 0;
-}
+a { color: var(--ink); text-decoration: none; }
+a:hover { color: var(--violet); }
+button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; text-align: left; padding: 0; }
+input, select, textarea { font: inherit; color: inherit; }
+::selection { background: var(--violet-sel); }
 
 .hide-scrollbar::-webkit-scrollbar { display: none; }
 .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
-/* ── Script handling ────────────────────────────────────────────────────────
-   Bricolage has no Tamil, so a Tamil headline falls to Noto Sans Tamil. Tamil
-   glyphs are taller and have no case, so they need their own metric: slightly
-   smaller, looser leading, and far gentler tracking — tracked as hard as Latin,
-   Tamil conjuncts collide.                                                   */
-
-/* Optical adjustments ONLY. Do not set font-size here: `[lang='ta'] .u-display`
-   has specificity (0,2,0) and would beat Tailwind's `.text-q` (0,1,0),
-   silently collapsing every Tamil headline to ~15px. Size stays owned by the
-   size utility; Tamil parity is handled by the leading and tracking below. */
-[lang='ta'] .u-display,
-.u-display[lang='ta'] {
-  line-height: 1.38;
-  letter-spacing: -0.005em;
-  font-weight: 600;
+/* ── Bloom drift ──────────────────────────────────────────────────────────── */
+@keyframes svDrift {
+  0%   { transform: translate3d(0, 0, 0) scale(1); }
+  50%  { transform: translate3d(0, -16px, 0) scale(1.05); }
+  100% { transform: translate3d(0, 0, 0) scale(1); }
 }
-
-/* Indic scripts have no uppercase. Forcing it produces nonsense, so the
-   uppercase meta treatment is Latin-only. */
-[lang='ta'] .u-meta,
-.u-meta[lang='ta'] {
-  text-transform: none;
-  letter-spacing: 0.02em;
-}
-
-/* Long scheme names must wrap, never truncate mid-word, and never take the
-   display face. */
-.u-scheme-name {
-  text-wrap: balance;
-  overflow-wrap: break-word;
-  word-break: normal;
-  hyphens: none;
-}
+@keyframes svSpin  { to { transform: rotate(360deg); } }
+@keyframes svPulse { 0% { opacity: .55 } 50% { opacity: 1 } 100% { opacity: .55 } }
 
 @layer components {
-  .u-display {
-    font-family: 'Bricolage Grotesque', 'Noto Sans Tamil', 'Noto Sans', system-ui, sans-serif;
-    font-weight: 600;
-    letter-spacing: -0.03em;
-    line-height: 1.12;
+  /* ── Type roles ─────────────────────────────────────────────────────────
+     `.mono` is the meta face: uppercase, wide-tracked, always Latin. Tamil
+     never takes it — Indic scripts have no uppercase, so `[lang=ta]` below
+     drops the transform and the tracking.                                   */
+  .mono {
+    font-family: 'IBM Plex Mono', ui-monospace, monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
+  .ta {
+    font-family: 'Noto Sans Tamil', Archivo, sans-serif;
+    line-height: 1.5;
+  }
+  [lang='ta'] .mono, .mono[lang='ta'] {
+    text-transform: none;
+    letter-spacing: 0.02em;
+    font-family: 'Noto Sans Tamil', sans-serif;
   }
 
-  .u-meta {
-    @apply text-meta uppercase text-muted font-semibold;
+  /* Display sizes. Tracking is tight and negative, as in the source. */
+  .h-hero  { font-size: clamp(46px, 6.4vw, 92px); line-height: .95;  font-weight: 700; letter-spacing: -.045em; text-wrap: balance; }
+  .h-1     { font-size: 40px; line-height: 1.06; font-weight: 700; letter-spacing: -.035em; }
+  .h-2     { font-size: 34px; line-height: 1.1;  font-weight: 700; letter-spacing: -.035em; }
+  .h-3     { font-size: 22px; line-height: 1.25; font-weight: 600; letter-spacing: -.02em; }
+  .figure  { font-size: 54px; line-height: 1;    font-weight: 700; letter-spacing: -.04em; }
+  .figure-sm { font-size: 36px; line-height: 1.05; font-weight: 800; letter-spacing: -.042em; }
+
+  /* Long scheme names never take a display face and must wrap, never clip. */
+  .scheme-name {
+    font-size: 17px; line-height: 1.35; font-weight: 600; letter-spacing: -.015em;
+    text-wrap: balance; overflow-wrap: break-word; hyphens: none;
   }
 
-  /* The one floating surface. Double-bezel: an outer tray holding an inner
-     plate, with concentric radii, so it reads as a physical object rather than
-     a div with a border. */
-  .surface-tray {
-    @apply rounded-[32px] p-1.5;
-    background: rgba(255, 255, 255, 0.5);
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.6);
-    backdrop-filter: blur(8px);
-  }
-  .surface-plate {
-    @apply bg-surface rounded-surface shadow-e3;
-  }
+  /* ── Surfaces ───────────────────────────────────────────────────────────
+     Small radii on purpose. This reads as a document, not an app.          */
+  .panel      { background: var(--white); border: 1px solid var(--rule-14); border-radius: 6px; }
+  .panel-flat { background: var(--panel); border: 1px solid var(--rule-16); border-radius: 4px; }
+  .shell      { background: var(--page); border: 1px solid var(--rule-16); border-radius: 8px;
+                box-shadow: 0 40px 90px -30px rgba(20, 20, 26, .28); overflow: hidden; }
+  .rule-t     { border-top: 1px solid var(--rule-14); }
+  .rule-b     { border-bottom: 1px solid var(--rule-12); }
+  .rule-r     { border-right: 1px solid var(--rule-12); }
 
-  .well {
-    @apply bg-surface-sub rounded-well;
+  /* ── Controls ───────────────────────────────────────────────────────────── */
+  .btn {
+    background: var(--ink); color: #fff; border-radius: 999px;
+    padding: 19px 36px; font-size: 17px; font-weight: 600; letter-spacing: -.01em;
+    box-shadow: 0 14px 30px -12px rgba(20, 20, 26, .55);
+    transition: transform .18s ease, box-shadow .18s ease;
   }
+  .btn:hover { transform: translateY(-2px); box-shadow: 0 20px 38px -12px rgba(20, 20, 26, .6); }
 
-  .btn-primary {
-    @apply bg-ink text-white font-semibold rounded-full px-7 py-4 text-[17px]
-           shadow-e2 transition-all duration-240 ease-composed
-           hover:shadow-e3 active:scale-[0.98];
+  .btn-quiet {
+    border: 1px solid var(--rule-22); border-radius: 999px;
+    padding: 8px 18px; font-size: 14.5px; font-weight: 500;
+    background: rgba(255, 255, 255, .55);
+    transition: background .18s ease, color .18s ease, border-color .18s ease;
   }
-  .btn-secondary {
-    @apply bg-surface text-ink font-semibold rounded-full px-7 py-4 text-[17px]
-           transition-all duration-240 ease-composed active:scale-[0.98];
-    box-shadow: inset 0 0 0 1px var(--hairline);
+  .btn-quiet:hover { background: var(--ink); color: #fff; border-color: var(--ink); }
+
+  .btn-icon {
+    width: 42px; height: 42px; display: flex; align-items: center; justify-content: center;
+    border: 1px solid var(--rule-20); border-radius: 999px; background: #fff; flex: none;
   }
-  .btn-ghost {
-    @apply text-ink font-medium rounded-full px-4 py-2 transition-colors
-           duration-240 hover:bg-surface-sub;
+  .btn-icon:hover { border-color: var(--ink); }
+
+  /* An answer option. Full-width, generous — a cracked screen is the target. */
+  .option {
+    width: 100%; display: block; text-align: left;
+    border: 1px solid var(--rule-16); border-radius: 4px;
+    background: #fff; padding: 15px 18px; min-height: 56px;
+    transition: border-color .18s ease, background .18s ease;
   }
+  .option:hover { border-color: var(--ink); }
+  .option[data-selected='true'] { background: var(--ink); color: #fff; border-color: var(--ink); }
 
   /* A Thread chip — the citizen's own answer, carried forward. */
   .chip {
-    @apply inline-flex items-center gap-1.5 rounded-full bg-surface
-           px-3.5 py-1.5 text-[13px] font-medium text-ink-2 whitespace-nowrap;
-    box-shadow: inset 0 0 0 1px var(--hairline);
+    display: inline-flex; align-items: center; gap: 6px;
+    border: 1px solid var(--rule-16); border-radius: 999px;
+    padding: 5px 12px; font-size: 12.5px; line-height: 1.4;
+    background: #fff; white-space: nowrap;
   }
-  .chip-active {
-    @apply bg-ink text-white;
-    box-shadow: none;
-  }
+  .chip-mark { background: var(--violet-mark); border-color: transparent; }
 
-  .card {
-    @apply bg-surface rounded-surface p-6 shadow-e1;
-    box-shadow: inset 0 0 0 1px var(--hairline), 0 1px 2px rgba(20, 19, 26, 0.04);
+  /* Sahayak — the deliberately different surface. */
+  .sahayak {
+    border: 1px dashed var(--sah-rule); background: var(--sah-bg);
+    border-radius: 4px; color: var(--sah-ink);
   }
+  .sahayak:hover { background: var(--sah-bg-hover); }
 
-  /* Answer option: full-width, generous, unmistakably tappable. */
-  .option {
-    @apply w-full text-left rounded-well px-5 py-4 bg-surface text-ink
-           transition-all duration-240 ease-composed;
-    box-shadow: inset 0 0 0 1px var(--hairline);
-  }
-  .option:hover { box-shadow: inset 0 0 0 1px rgba(20, 19, 26, 0.18); }
-  .option[data-selected='true'] {
-    @apply bg-ink text-white;
-    box-shadow: none;
-  }
-
-  .amber-banner {
-    @apply rounded-well px-4 py-3 text-sm text-ink;
-    background: rgba(251, 217, 181, 0.35);
-    box-shadow: inset 0 0 0 1px rgba(251, 217, 181, 0.9);
-  }
+  /* Emphasised word in body copy — a highlighter rule, not a colour change. */
+  .mark { font-style: normal; box-shadow: inset 0 -.5em 0 var(--violet-mark); }
 }
 
 @layer utilities {
-  /* ── The bloom ────────────────────────────────────────────────────────────
-     Painted as stacked radial-gradients, NOT filter: blur(). A 120px blur on a
-     viewport-sized element drops a budget Android under 30fps; this costs
-     nothing. Temperature encodes state — see DESIGN.md §1.                   */
-  .bloom {
-    position: absolute;
-    inset: -20%;
-    pointer-events: none;
-    z-index: 0;
-    background-repeat: no-repeat;
+  /* Bloom is painted, never blurred. A large filter: blur() drops a budget
+     Android under 30fps; stacked radial-gradients cost nothing. */
+  .bloom { position: absolute; pointer-events: none; }
+  .bloom-landing {
+    inset: -10% -5%;
+    animation: svDrift 22s ease-in-out infinite;
+    background:
+      radial-gradient(34% 42% at 10% 16%, rgba(var(--bloom-teal), .60) 0%, rgba(var(--bloom-teal), .34) 32%, rgba(var(--bloom-teal), .11) 58%, rgba(var(--bloom-teal), 0) 76%),
+      radial-gradient(40% 48% at 78% 4%,  rgba(var(--bloom-lav), .58) 0%, rgba(var(--bloom-lav), .32) 34%, rgba(var(--bloom-lav), .10) 60%, rgba(var(--bloom-lav), 0) 78%),
+      radial-gradient(42% 40% at 92% 54%, rgba(var(--bloom-peach), .55) 0%, rgba(var(--bloom-peach), .30) 34%, rgba(var(--bloom-peach), .09) 60%, rgba(var(--bloom-peach), 0) 78%),
+      radial-gradient(46% 38% at 30% 96%, rgba(var(--bloom-pink), .42) 0%, rgba(var(--bloom-pink), .22) 36%, rgba(var(--bloom-pink), .06) 62%, rgba(var(--bloom-pink), 0) 80%);
   }
-
-  .bloom-cool {
-    background-image:
-      radial-gradient(38% 44% at 22% 28%, var(--bloom-lavender) 0%, transparent 68%),
-      radial-gradient(42% 40% at 76% 22%, var(--bloom-sky) 0%, transparent 66%),
-      radial-gradient(46% 46% at 58% 74%, var(--bloom-mint) 0%, transparent 70%);
-    opacity: 0.55;
+  .bloom-shell {
+    inset: 0;
+    background:
+      radial-gradient(28% 34% at 6% 4%,  rgba(var(--bloom-lav), .30) 0%, rgba(var(--bloom-lav), .12) 44%, rgba(var(--bloom-lav), 0) 74%),
+      radial-gradient(30% 38% at 96% 92%, rgba(var(--bloom-teal), .26) 0%, rgba(var(--bloom-teal), 0) 72%);
   }
-  .bloom-neutral {
-    background-image:
-      radial-gradient(40% 44% at 18% 32%, var(--bloom-mint) 0%, transparent 68%),
-      radial-gradient(44% 40% at 78% 26%, var(--bloom-lavender) 0%, transparent 66%),
-      radial-gradient(46% 48% at 54% 76%, var(--bloom-sky) 0%, transparent 70%);
-    opacity: 0.5;
+  .bloom-header {
+    inset: 0; height: 280px;
+    background:
+      radial-gradient(46% 100% at 10% 0%, rgba(var(--bloom-peach), .34) 0%, rgba(var(--bloom-peach), .12) 46%, rgba(var(--bloom-peach), 0) 78%),
+      radial-gradient(40% 90% at 88% 0%,  rgba(var(--bloom-lav), .30) 0%, rgba(var(--bloom-lav), 0) 74%);
   }
-  .bloom-warm {
-    background-image:
-      radial-gradient(40% 46% at 24% 30%, var(--bloom-peach) 0%, transparent 68%),
-      radial-gradient(44% 42% at 74% 24%, var(--bloom-blush) 0%, transparent 66%),
-      radial-gradient(48% 48% at 56% 76%, var(--bloom-lavender) 0%, transparent 70%);
-    opacity: 0.58;
-  }
-  /* Content screens: present but never competing with a scheme name. */
-  .bloom-quiet { opacity: 0.09; }
-
   .tabular { font-variant-numeric: tabular-nums; }
 
-  /* Entrance that CANNOT hide content.
-     Opacity stays 1 throughout — only the translate is animated. JS-driven
-     entrances (framer-motion) run off requestAnimationFrame, which the renderer
-     suspends whenever it treats the surface as non-visible; when that happened
-     the reveal's text sat at opacity:0 permanently and the citizen saw a blank
-     screen at the single most important moment in the product. Motion is an
-     enhancement here, never the thing that makes text appear. */
-  .enter {
-    animation: enter-rise 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
-  }
-  @keyframes enter-rise {
-    from { transform: translate3d(0, 14px, 0); }
-    to   { transform: translate3d(0, 0, 0); }
-  }
+  /* Entrance that cannot hide content: opacity stays 1, only the translate
+     animates. JS-driven entrances stall when the renderer suspends rAF, and a
+     blank reveal at the moment of truth is unforgivable. */
+  .enter { animation: enterRise .42s cubic-bezier(.22, 1, .36, 1) both; }
+  @keyframes enterRise { from { transform: translate3d(0, 14px, 0) } to { transform: translate3d(0, 0, 0) } }
 }
 
-/* Motion is composed, not slow. A citizen on a metered connection should never
-   be waiting on an animation. */
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.001ms !important;
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0.001ms !important;
-    scroll-behavior: auto !important;
+    transition-duration: .001ms !important;
   }
 }

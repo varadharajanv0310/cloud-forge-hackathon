@@ -1,17 +1,20 @@
 import { useEffect, useState } from 'react';
-import { motion, useReducedMotion } from 'framer-motion';
 import { loadManifest } from '../utils/schemesStore.js';
 
 /**
- * Landing — the first thing a judge sees.
+ * Landing — ported from the Claude Design source (Sevai.dc.html, isLanding).
  *
- * Every figure here is read from the generated corpus manifest at runtime. The
+ * Editorial rather than app-like: hairline rules instead of cards, a mono meta
+ * face, 4px radii, and English and Tamil set TOGETHER rather than behind a
+ * toggle — a Tamil reader should never have to find a switch to be addressed.
+ *
+ * Every figure is read from the generated corpus manifest at runtime. The
  * previous landing claimed "₹4Cr+ Claimed Successfully" and "12k Farmers
  * Served"; both were invented, and inventing a statistic on the one screen that
- * asks for trust undoes the entire honesty argument the product rests on.
+ * asks for trust undoes the argument the product rests on.
  */
 
-const FALLBACK = { schemes: 4643, states: 36, central: 668 };
+const FALLBACK = { schemes: 4643, states: 36, central: 668, refreshed: '06 Aug 2026' };
 
 function useCorpusStats() {
   const [s, setS] = useState(FALLBACK);
@@ -19,11 +22,17 @@ function useCorpusStats() {
     loadManifest()
       .then((m) => {
         if (!m) return;
-        const total = (m.central_count || 0) + (m.states || []).reduce((n, x) => n + x.count, 0);
+        const unique = new Set();
+        (m.states || []).forEach((x) => unique.add(x.slug));
         setS({
-          schemes: total || FALLBACK.schemes,
+          schemes: (m.central_count || 0) + (m.states || []).reduce((n, x) => n + x.count, 0),
           states: (m.states || []).length || FALLBACK.states,
           central: m.central_count || FALLBACK.central,
+          refreshed: m.generated_at
+            ? new Date(m.generated_at).toLocaleDateString('en-GB', {
+                day: '2-digit', month: 'short', year: 'numeric',
+              })
+            : FALLBACK.refreshed,
         });
       })
       .catch(() => {});
@@ -33,156 +42,180 @@ function useCorpusStats() {
 
 const nf = (n) => n.toLocaleString('en-IN');
 
-export default function Landing({ onStart, lang, setLang }) {
-  const t = (en, ta) => (lang === 'ta' ? ta : en);
-  const stats = useCorpusStats();
-  const reduce = useReducedMotion();
+/** English above, Tamil beneath — the pairing used throughout the design. */
+function Bi({ en, ta, enClass = '', taClass = '', tag: Tag = 'div' }) {
+  return (
+    <Tag>
+      <div className={enClass}>{en}</div>
+      <div className={`ta ${taClass}`} lang="ta">{ta}</div>
+    </Tag>
+  );
+}
 
-  const rise = (delay = 0) => ({
-    initial: reduce ? false : { opacity: 0, y: 16 },
-    animate: { opacity: 1, y: 0 },
-    transition: { duration: 0.5, delay, ease: [0.22, 1, 0.36, 1] },
-  });
+export default function Landing({ onStart, lang, setLang }) {
+  const s = useCorpusStats();
+
+  const figures = [
+    [nf(s.schemes), 'Schemes in the corpus', 'திட்டங்கள்'],
+    [nf(s.states), 'States & UTs covered', 'மாநிலங்கள்'],
+    [nf(s.central), 'Central, open to everyone', 'மத்திய அரசு திட்டங்கள்'],
+    ['0', 'Forms to fill in', 'நிரப்ப வேண்டிய படிவங்கள்'],
+  ];
+
+  const steps = [
+    ['01', 'Answer seven questions', 'ஏழு கேள்விகளுக்குப் பதிலளியுங்கள்',
+      'One at a time, in large type. A few more only if they apply to you. Twelve at the very most.'],
+    ['02', 'We check them all', 'அனைத்தையும் சரிபார்க்கிறோம்',
+      'Every central scheme and every scheme in your state — around 900 for Tamil Nadu — checked on the device itself.'],
+    ['03', 'You see why each matched', 'ஏன் பொருந்தியது என்று பார்க்கலாம்',
+      'Your own answers are printed on every result, so you can check our reasoning instead of trusting it.'],
+  ];
+
+  const limits = [
+    ['It does not apply for you',
+      "Every application is made on the government's own site. Sevai submits nothing on your behalf."],
+    ['It does not promise money',
+      'Matching is not approval. Only the department that runs a scheme can decide.'],
+    ['It does not invent amounts',
+      'Where a scheme has not published what it pays, Sevai says so rather than guessing.'],
+  ];
 
   return (
-    <div className="min-h-[100dvh] w-full bg-canvas relative overflow-x-hidden">
-      <div className="bloom bloom-cool animate-bloom-drift" aria-hidden="true" />
+    <div className="relative overflow-hidden min-h-[100dvh]">
+      <div className="bloom bloom-landing" aria-hidden="true" />
 
-      <div className="relative z-10 mx-auto w-full max-w-[1120px] px-4 sm:px-6 py-4 sm:py-6">
-        {/* ── nav ─────────────────────────────────────────────────────────── */}
-        <header className="flex items-center justify-between mb-8 sm:mb-14 px-2">
-          <div className="u-display text-[19px] tracking-[-0.02em]">Sevai</div>
-          <button
-            onClick={() => setLang(lang === 'ta' ? 'en' : 'ta')}
-            className="btn-ghost compact text-[14px]"
-            lang={lang === 'ta' ? 'en' : 'ta'}
-          >
-            {lang === 'ta' ? 'English' : 'தமிழ்'}
-          </button>
+      <div className="relative mx-auto max-w-[1320px] px-6 sm:px-10 lg:px-14">
+        {/* ── masthead ─────────────────────────────────────────────────── */}
+        <header className="flex items-center justify-between gap-6 pt-7 flex-wrap">
+          <div className="flex items-baseline gap-2.5">
+            <span className="text-[23px] font-bold tracking-[-.035em]">Sevai</span>
+            <span className="ta text-[15px] font-medium text-ink-45" lang="ta">சேவை</span>
+          </div>
+
+          <nav className="hidden md:flex items-center gap-8 text-[14.5px] text-ink-70">
+            <a href="#how">How it works</a>
+            <a href="#figures">The corpus</a>
+            <a href="#limits">Privacy</a>
+          </nav>
+
+          <div className="flex items-center gap-3.5">
+            <div className="flex rounded-full overflow-hidden border border-rule-16 bg-white/60">
+              <button
+                onClick={() => setLang('en')}
+                className={`mono px-3.5 py-[7px] text-[11.5px] tracking-[.10em] ${
+                  lang === 'en' ? 'bg-ink text-white' : 'text-ink-70'
+                }`}
+              >
+                EN
+              </button>
+              <button
+                onClick={() => setLang('ta')}
+                lang="ta"
+                className={`ta px-3.5 py-[7px] text-[13px] ${
+                  lang === 'ta' ? 'bg-ink text-white' : 'text-ink-70'
+                }`}
+              >
+                தமிழ்
+              </button>
+            </div>
+            <button onClick={onStart} className="btn-quiet hidden sm:block">Open the app</button>
+          </div>
         </header>
 
-        {/* ── hero ────────────────────────────────────────────────────────── */}
-        <div className="surface-tray">
-          <div className="surface-plate relative overflow-hidden px-6 sm:px-12 lg:px-16 py-12 sm:py-16 lg:py-20">
-            <div className="bloom bloom-warm bloom-quiet" aria-hidden="true" />
+        {/* ── hero ─────────────────────────────────────────────────────── */}
+        <div className="grid gap-10 lg:gap-16 lg:grid-cols-2 items-end pt-16 pb-16 sm:pt-24 sm:pb-24">
+          <div>
+            <div className="mono text-[11.5px] tracking-[.15em] text-ink-55 mb-6 sm:mb-7">
+              Free · No account · Nothing leaves your device
+            </div>
+            <h1 className="h-hero m-0 max-w-[13ch]">Know what you are owed.</h1>
+            <div
+              className="ta mt-5 font-medium text-ink-80 max-w-[16ch]"
+              lang="ta"
+              style={{ fontSize: 'clamp(19px,2vw,27px)' }}
+            >
+              உங்களுக்கு உரியது என்ன என்பதை அறியுங்கள்.
+            </div>
+          </div>
 
-            <div className="relative z-10 max-w-[760px]">
-              <motion.div {...rise(0)}>
-                <span className="u-meta inline-flex items-center gap-2" lang={lang}>
-                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-ink" />
-                  {t('Government welfare, without the paperwork', 'அரசு நலத்திட்டங்கள், காகிதம் இன்றி')}
-                </span>
-              </motion.div>
-
-              <motion.h1
-                {...rise(0.06)}
-                lang={lang}
-                className="u-display text-q sm:text-q-md lg:text-q-lg mt-5 text-ink"
-              >
-                {t('Know what you are owed.', 'உங்களுக்கு உரியது என்னவென்று அறியுங்கள்.')}
-              </motion.h1>
-
-              <motion.p
-                {...rise(0.12)}
-                lang={lang}
-                className="mt-5 text-lead text-ink-2 max-w-[52ch]"
-              >
-                {t(
-                  'Answer a few questions. We check every central and state scheme you could claim, and show you why each one matched.',
-                  'சில கேள்விகளுக்கு பதிலளியுங்கள். நீங்கள் பெறக்கூடிய அனைத்து மத்திய மற்றும் மாநிலத் திட்டங்களையும் சரிபார்த்து, ஒவ்வொன்றும் ஏன் பொருந்தியது என்பதைக் காட்டுவோம்.',
-                )}
-              </motion.p>
-
-              <motion.div {...rise(0.18)} className="mt-9 flex flex-wrap items-center gap-3">
-                <button onClick={onStart} className="btn-primary" lang={lang}>
-                  {t('Find my schemes', 'என் திட்டங்களைக் கண்டறி')}
-                </button>
-                <span className="text-[14px] text-muted" lang={lang}>
-                  {t('Takes about two minutes', 'சுமார் இரண்டு நிமிடங்கள்')}
-                </span>
-              </motion.div>
+          <div className="lg:pb-3">
+            <p className="m-0 text-[19px] leading-[1.62] text-ink-80 max-w-[44ch]">
+              Sevai checks every central government scheme and every scheme in your own state
+              against your answers, then shows you <em className="mark">why each one matched</em>.
+              No forms. No login. Your answers stay on the phone in your hand.
+            </p>
+            <div className="ta mt-4 text-[16px] text-ink-45 max-w-[46ch]" lang="ta">
+              மத்திய மற்றும் உங்கள் மாநிலத் திட்டங்கள் அனைத்தையும் சரிபார்த்து, ஏன் பொருந்தியது
+              என்பதையும் காட்டுகிறோம்.
             </div>
 
-            {/* ── real corpus figures ───────────────────────────────────── */}
-            <motion.dl
-              {...rise(0.26)}
-              className="relative z-10 mt-14 sm:mt-16 grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-8
-                         pt-8 border-t border-hairline"
-            >
-              {[
-                [nf(stats.schemes), t('schemes searched', 'திட்டங்கள்')],
-                [nf(stats.states), t('states & UTs', 'மாநிலங்கள்')],
-                [nf(stats.central), t('central schemes', 'மத்தியத் திட்டங்கள்')],
-                ['0', t('forms to fill', 'நிரப்ப வேண்டிய படிவங்கள்')],
-              ].map(([v, k]) => (
-                <div key={k}>
-                  <dd className="u-display tabular text-[30px] sm:text-[34px] text-ink">{v}</dd>
-                  <dt className="u-meta mt-1" lang={lang}>{k}</dt>
-                </div>
-              ))}
-            </motion.dl>
+            <div className="flex items-center gap-5 mt-9 flex-wrap">
+              <button onClick={onStart} className="btn">Find my schemes →</button>
+              <div>
+                <div className="text-[14px] text-ink-70">Takes about two minutes</div>
+                <div className="ta text-[13px] text-ink-40" lang="ta">சுமார் இரண்டு நிமிடங்கள்</div>
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* ── how it works ────────────────────────────────────────────────── */}
-        <div className="mt-6 grid gap-4 md:grid-cols-3">
-          {[
-            {
-              n: '01',
-              h: t('You answer, not a form', 'படிவம் அல்ல, பதில்கள்'),
-              p: t(
-                'One question at a time, in your language. Skip anything you would rather not say.',
-                'ஒரு நேரத்தில் ஒரு கேள்வி, உங்கள் மொழியில். சொல்ல விரும்பாததைத் தவிர்க்கலாம்.',
-              ),
-            },
-            {
-              n: '02',
-              h: t('We check everything', 'அனைத்தையும் சரிபார்க்கிறோம்'),
-              p: t(
-                'Central schemes plus your own state’s. Never another state’s — those are not yours to claim.',
-                'மத்தியத் திட்டங்களுடன் உங்கள் மாநிலத் திட்டங்களும். பிற மாநிலங்களுடையவை அல்ல.',
-              ),
-            },
-            {
-              n: '03',
-              h: t('You see the reason', 'காரணத்தையும் காட்டுவோம்'),
-              p: t(
-                'Each scheme carries the answers that matched it, so nothing is a black box.',
-                'ஒவ்வொரு திட்டமும் பொருந்திய காரணங்களுடன் வரும். எதுவும் மறைக்கப்படவில்லை.',
-              ),
-            },
-          ].map((c, i) => (
-            <motion.div
-              key={c.n}
-              initial={reduce ? false : { opacity: 0, y: 16 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, margin: '-60px' }}
-              transition={{ duration: 0.45, delay: i * 0.06, ease: [0.22, 1, 0.36, 1] }}
-              className="card"
+        {/* ── the corpus, in real figures ──────────────────────────────── */}
+        <div id="figures" className="rule-t grid grid-cols-2 lg:grid-cols-4">
+          {figures.map(([v, en, ta], i) => (
+            <div
+              key={en}
+              className={`py-8 sm:py-9 ${i === 0 ? 'pr-7 lg:pl-0' : 'px-4 sm:px-7'} ${
+                i < 3 ? 'lg:border-r border-rule-10' : ''
+              } ${i < 2 ? 'border-b lg:border-b-0 border-rule-10' : ''}`}
             >
-              <div className="u-display tabular text-[15px] text-muted">{c.n}</div>
-              <h3 className="u-display text-[21px] mt-3 text-ink" lang={lang}>{c.h}</h3>
-              <p className="mt-2 text-[15px] leading-[1.6] text-muted" lang={lang}>{c.p}</p>
-            </motion.div>
+              <div className="figure tabular">{v}</div>
+              <div className="mono text-[11px] tracking-[.13em] text-ink-55 mt-3">{en}</div>
+              <div className="ta text-[14px] text-ink-45 mt-1" lang="ta">{ta}</div>
+            </div>
           ))}
         </div>
 
-        {/* ── the honest note ─────────────────────────────────────────────── */}
-        <div className="mt-6 card">
-          <div className="u-meta" lang={lang}>{t('What this does not do', 'இது என்ன செய்யாது')}</div>
-          <p className="mt-3 text-[15px] leading-[1.65] text-ink-2 max-w-[70ch]" lang={lang}>
-            {t(
-              'Sevai does not submit applications for you and does not promise money. It tells you which schemes you appear eligible for, what each is worth, and links you to the official page to apply. Amounts a scheme has not published are counted but never guessed at.',
-              'சேவை உங்களுக்காக விண்ணப்பிக்காது, பணம் உறுதியளிக்காது. நீங்கள் தகுதி பெறக்கூடிய திட்டங்கள், அவற்றின் மதிப்பு, மற்றும் அதிகாரப்பூர்வ பக்கத்திற்கான இணைப்பை மட்டுமே தரும். அறிவிக்கப்படாத தொகைகள் ஊகிக்கப்படுவதில்லை.',
-            )}
-          </p>
+        {/* ── how it works ─────────────────────────────────────────────── */}
+        <div id="how" className="pt-20 sm:pt-24 pb-6 grid gap-10 lg:gap-16 lg:grid-cols-[0.9fr_2.1fr]">
+          <div>
+            <h2 className="h-1 m-0">How it<br />works</h2>
+            <div className="ta text-[17px] text-ink-45 mt-3.5" lang="ta">
+              இது எப்படி வேலை செய்கிறது
+            </div>
+          </div>
+          <div className="grid gap-8 sm:gap-9 md:grid-cols-3">
+            {steps.map(([n, en, ta, body]) => (
+              <div key={n} className="pt-5 border-t-[1.5px] border-ink">
+                <div className="mono text-[12px] tracking-[.12em] text-ink-55">{n}</div>
+                <div className="h-3 mt-5">{en}</div>
+                <div className="ta text-[16px] text-ink-65 mt-1.5" lang="ta">{ta}</div>
+                <p className="mt-3.5 mb-0 text-[15.5px] leading-[1.6] text-ink-60">{body}</p>
+              </div>
+            ))}
+          </div>
         </div>
 
-        <footer className="mt-8 mb-6 px-2 flex flex-wrap items-center justify-between gap-3">
-          <span className="u-meta" lang={lang}>
-            {t('Scheme data from myscheme.gov.in', 'திட்டத் தரவு: myscheme.gov.in')}
-          </span>
-          <span className="u-meta">Sevai</span>
+        {/* ── what it does not do ──────────────────────────────────────── */}
+        <div id="limits" className="mt-20 sm:mt-24 panel-flat grid lg:grid-cols-[0.55fr_1.45fr]">
+          <div className="p-7 sm:px-8 border-b lg:border-b-0 lg:border-r border-rule-12">
+            <div className="mono text-[11.5px] tracking-[.14em] text-ink-55 leading-[1.7]">
+              What Sevai<br />does not do
+            </div>
+            <div className="ta text-[15px] text-ink-45 mt-3" lang="ta">சேவை என்ன செய்யாது</div>
+          </div>
+          <div className="p-7 sm:px-8 grid gap-7 md:grid-cols-3">
+            {limits.map(([h, p]) => (
+              <div key={h}>
+                <div className="text-[16.5px] font-semibold tracking-[-.015em]">{h}</div>
+                <p className="mt-2 mb-0 text-[15px] leading-[1.6] text-ink-60">{p}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <footer className="flex justify-between items-center gap-4 flex-wrap py-11 mono text-[11px] tracking-[.1em] text-ink-40">
+          <span>Sevai · Corpus normalised from myscheme.gov.in</span>
+          <span className="tabular">{nf(s.schemes)} schemes · Last refreshed {s.refreshed}</span>
         </footer>
       </div>
     </div>

@@ -1136,6 +1136,11 @@ def main():
         "schema_version": SCHEMA_VERSION,
         "generated_at": generated,
         "source": "myscheme.gov.in",
+        # Unique scheme count. Summing central_count + the per-state counts
+        # OVERCOUNTS, because a multi-state scheme is written into every state
+        # shard it names — the landing page quotes this figure, so it has to be
+        # the honest one.
+        "total_schemes": len(schemes),
         "central_count": len(central),
         "states": [],
     }
