@@ -22,10 +22,12 @@ function useCorpusStats() {
     loadManifest()
       .then((m) => {
         if (!m) return;
-        const unique = new Set();
-        (m.states || []).forEach((x) => unique.add(x.slug));
         setS({
-          schemes: (m.central_count || 0) + (m.states || []).reduce((n, x) => n + x.count, 0),
+          // total_schemes is the UNIQUE count. Summing central + the per-state
+          // counts overcounts, because a multi-state scheme is written into
+          // every shard it names — and this is the screen that asks for trust.
+          schemes: m.total_schemes
+            || (m.central_count || 0) + (m.states || []).reduce((n, x) => n + x.count, 0),
           states: (m.states || []).length || FALLBACK.states,
           central: m.central_count || FALLBACK.central,
           refreshed: m.generated_at
