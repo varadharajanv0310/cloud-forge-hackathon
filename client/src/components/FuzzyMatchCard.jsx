@@ -80,8 +80,8 @@ export default function FuzzyMatchCard({ entry, vault, lang = 'en' }) {
 
   return (
     <motion.article
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
+      initial={{ y: 12 }}
+      animate={{ y: 0 }}
       transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
       onClick={() => nav(`/scheme/${scheme.id}`)}
       className="bg-surface rounded-surface p-6 border border-dashed border-hairline
@@ -160,8 +160,8 @@ export default function FuzzyMatchCard({ entry, vault, lang = 'en' }) {
 
             {openDetail && (
               <motion.p
-                initial={{ opacity: 0, y: -4 }}
-                animate={{ opacity: 1, y: 0 }}
+                initial={{ y: -4 }}
+                animate={{ y: 0 }}
                 transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
                 className="text-[14px] text-ink-2 leading-relaxed"
                 lang={lang}

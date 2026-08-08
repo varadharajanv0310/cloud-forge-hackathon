@@ -1,213 +1,317 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { SAHAYAK_PIN, BENEFICIARIES, appendAudit } from '../utils/sahayakMock.js';
 import { evaluateAll } from '../utils/eligibilityEngine.js';
 import { useSchemes } from '../utils/schemesStore.js';
-import { formatBenefit, benefitToneClass, formatTotals } from '../utils/formatters.js';
+import { formatBenefit, formatRupees } from '../utils/formatters.js';
 import { MatchReason } from './Thread.jsx';
-import { t } from '../data/strings.js';
 
 /**
- * SahayakMode — delegated access.
+ * SahayakMode — ported from the Claude Design source (Sevai.dc.html, isWSahayak).
  *
- * Someone else is holding the phone: a volunteer, a VAO clerk, a relative. That
- * changes two things and nothing else.
+ * Someone else is holding the phone: a volunteer, a VAO clerk, a relative.
  *
- *  - The screen is now an operator surface, so it says whose data is on it and
- *    logs every action. PIN gate, beneficiary lookup and audit logging are
- *    unchanged from v1.
- *  - Caste is deliberately NOT displayed. It was in the beneficiary header, and
- *    this is precisely the screen where a third party is reading over someone's
- *    shoulder. It still drives matching; it just does not sit on the glass.
+ * The design's answer to that is not a banner — it is a different *surface*.
+ * The whole screen is hatched in amber, the header bar is solid `--sah-ink`,
+ * and every rule and figure on it takes the warm ink rather than the citizen's
+ * near-black. Nothing about this view can be mistaken, at a glance across a
+ * counter, for the helper's own account. That is the point: an operator who
+ * forgets whose data is on the glass is the failure mode this screen exists to
+ * prevent, and a small chip in a corner does not prevent it.
  *
- * v2 data changes: `evaluateAll` now returns { eligible, close_matches, totals }
- * and reads the sharded store, so the pool is fetched here and passed in. The
- * per-scheme figure comes from formatBenefit — `benefit_amount` is gone, and
- * with it the old behaviour of printing a loan ceiling as though it were a
- * payout the volunteer could promise out loud.
+ * What is deliberately absent: caste and marital status. They still drive
+ * matching — they are simply never rendered, and the right-hand panel says so
+ * out loud rather than leaving their absence to be noticed. There is no reveal
+ * control, because a control that can expose caste to a third party is the
+ * defect, not the mitigation.
+ *
+ * The PIN gate, the beneficiary lookup and the audit log are unchanged; the
+ * design merges the PIN and the code into one signed-out form, and the 15
+ * minute session it advertises is now real — it counts down and expires.
  */
+
+const SESSION_MS = 15 * 60 * 1000;
+const PIN_LEN = 4;
+
+const clock = (ms) =>
+  new Date(ms).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+
+/* Warm-surface eyebrow. Mono, Latin only, as everywhere else. */
+const SahEyebrow = ({ children, className = '' }) => (
+  <div className={`mono text-[10.5px] tracking-[.14em] text-sah-ink ${className}`}>{children}</div>
+);
+
 export default function SahayakMode({ lang = 'en', onExit }) {
-  const [phase, setPhase] = useState('pin'); // pin | scan | beneficiary
-  const [pinInput, setPinInput] = useState('');
-  const [codeInput, setCodeInput] = useState('');
   const [beneficiary, setBeneficiary] = useState(null);
+  const [codeInput, setCodeInput] = useState('');
+  const [pinInput, setPinInput] = useState('');
   const [err, setErr] = useState(null);
+  const [openedAt, setOpenedAt] = useState(null);
+  const [now, setNow] = useState(Date.now());
+  const [actions, setActions] = useState(0);
   const nav = useNavigate();
   const ta = lang === 'ta';
+  const endedRef = useRef(false);
 
-  const submitPin = () => {
-    if (pinInput === SAHAYAK_PIN) {
-      setErr(null);
-      setPhase('scan');
-    } else {
-      setErr(ta ? 'தவறான PIN' : 'Wrong PIN');
-    }
-  };
+  const remaining = openedAt ? Math.max(0, openedAt + SESSION_MS - now) : 0;
 
-  const submitCode = () => {
-    const b = BENEFICIARIES[codeInput.trim()];
-    if (b) {
-      setBeneficiary(b);
-      setPhase('beneficiary');
-      setErr(null);
+  // The session the header promises is the session the app keeps.
+  useEffect(() => {
+    if (!openedAt) return undefined;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [openedAt]);
+
+  useEffect(() => {
+    if (!openedAt || remaining > 0 || endedRef.current) return;
+    endedRef.current = true;
+    endSession(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remaining, openedAt]);
+
+  function endSession(expired = false) {
+    if (beneficiary) {
       appendAudit({
-        sahayak_action: 'loaded_beneficiary',
+        sahayak_action: expired ? 'session_expired' : 'session_ended',
         scheme_id: null,
-        beneficiary_id: b.id,
+        beneficiary_id: beneficiary.id,
       });
-    } else {
-      setErr(ta ? 'பயனாளி காணப்படவில்லை' : 'Beneficiary not found');
     }
+    sessionStorage.removeItem('sevai_sahayak_beneficiary');
+    setBeneficiary(null);
+    setOpenedAt(null);
+    setActions(0);
+    setPinInput('');
+    setCodeInput('');
+    setErr(expired ? (ta ? 'அமர்வு காலாவதியானது' : 'That session ran out. Start a new one.') : null);
+    endedRef.current = false;
+  }
+
+  // One form, two gates: their code and the PIN they set.
+  const startSession = () => {
+    const b = BENEFICIARIES[codeInput.trim()];
+    if (!b) {
+      setErr(ta ? 'பயனாளி காணப்படவில்லை' : 'No beneficiary with that code');
+      return;
+    }
+    if (pinInput !== SAHAYAK_PIN) {
+      setErr(ta ? 'தவறான PIN' : 'That PIN does not match');
+      return;
+    }
+    setErr(null);
+    setBeneficiary(b);
+    setOpenedAt(Date.now());
+    setNow(Date.now());
+    setActions(1);
+    appendAudit({ sahayak_action: 'loaded_beneficiary', scheme_id: null, beneficiary_id: b.id });
   };
 
   const initiateFor = (scheme_id) => {
-    appendAudit({
-      sahayak_action: 'initiated_application',
-      scheme_id,
-      beneficiary_id: beneficiary.id,
-    });
-    // Switch to this beneficiary's "vault" temporarily via sessionStorage
+    appendAudit({ sahayak_action: 'initiated_application', scheme_id, beneficiary_id: beneficiary.id });
+    setActions((n) => n + 1);
+    // Apply reads this beneficiary as its vault for the duration of the session.
     sessionStorage.setItem('sevai_sahayak_beneficiary', JSON.stringify(beneficiary));
     nav(`/apply/${scheme_id}?sahayak=1`);
   };
 
-  const panel = 'surface-tray max-w-[420px] mx-auto';
+  const sessionId = beneficiary ? `SVK-${beneficiary.id}` : null;
+  const firstName = beneficiary ? String(beneficiary.name).split(' ')[0] : '';
 
   return (
-    <div className="fixed inset-0 z-50 bg-canvas overflow-y-auto">
-      <div className="bloom bloom-neutral bloom-quiet" aria-hidden="true" />
-
-      <div className="relative z-10 min-h-full flex flex-col">
-        <header className="sticky top-0 z-20 bg-canvas/85 backdrop-blur border-b border-hairline">
-          <div className="max-w-[1120px] mx-auto px-5 py-4 flex items-center justify-between gap-4">
-            <div className="min-w-0">
-              <div className="u-meta" lang={lang}>
-                {ta ? 'பிறருக்காக' : 'Assisted access'}
-              </div>
-              <div className="text-lead font-semibold text-ink truncate" lang={lang}>
-                {t('sahayak_title', lang)}
-              </div>
-            </div>
-            <button onClick={onExit} className="btn-secondary compact !py-2.5 !px-5 !text-[15px]" lang={lang}>
-              {ta ? 'வெளியேறு' : 'Exit'}
-            </button>
-          </div>
-        </header>
-
-        <div className="flex-1 px-5 py-8 sm:py-12">
-          <AnimatePresence mode="wait">
-            {phase === 'pin' && (
-              <motion.div
-                key="pin"
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -12 }}
-                transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
-                className={panel}
-              >
-                <div className="surface-plate p-7">
-                  <h2 className="u-display text-[26px] text-ink" lang={lang}>
-                    {t('sahayak_enter_pin', lang)}
-                  </h2>
-                  <p className="u-meta mt-3" lang={lang}>
-                    {ta ? 'மாதிரி PIN: 9999' : 'Demo PIN: 9999'}
-                  </p>
-
-                  <input
-                    type="password"
-                    inputMode="numeric"
-                    maxLength={6}
-                    value={pinInput}
-                    onChange={(e) => setPinInput(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && submitPin()}
-                    aria-label={t('sahayak_enter_pin', lang)}
-                    className="w-full mt-5 rounded-well bg-surface-sub px-4 py-4 text-center
-                               text-[26px] tabular tracking-[0.35em] text-ink outline-none
-                               ring-1 ring-hairline focus:ring-2 focus:ring-ink/25
-                               transition-shadow duration-240 ease-composed"
-                  />
-
-                  {err && <div className="amber-banner mt-3" lang={lang}>{err}</div>}
-
-                  <button onClick={submitPin} className="btn-primary w-full mt-5" lang={lang}>
-                    {t('continue', lang)}
-                  </button>
+    <div
+      className="fixed inset-0 z-50 overflow-y-auto"
+      style={{
+        background:
+          'repeating-linear-gradient(135deg,rgba(226,164,54,.07) 0 14px,transparent 14px 28px),'
+          + 'linear-gradient(rgba(226,164,54,.05),rgba(226,164,54,.05)),#FBFBFD',
+      }}
+    >
+      {/* ── the bar that never lets you forget ─────────────────────────────── */}
+      <header className="bg-sah-ink text-[#FFF6E2] px-5 sm:px-11 py-3.5 flex items-center justify-between gap-5 flex-wrap">
+        <div className="flex items-center gap-3.5 min-w-0">
+          <div className="w-[11px] h-[11px] rounded-[2px] bg-[#E2A436] flex-none" aria-hidden="true" />
+          <div className="min-w-0">
+            {beneficiary ? (
+              <>
+                <div className="text-[14.5px] sm:text-[15px] font-semibold tracking-[-.012em]">
+                  You are acting for {beneficiary.name} — this is not your own account
                 </div>
-              </motion.div>
+                <div className="ta text-[12.5px] text-[rgba(255,246,226,.72)] mt-0.5" lang="ta">
+                  நீங்கள் {beneficiary.name} அவர்களுக்காகச் செயல்படுகிறீர்கள்
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="text-[14.5px] sm:text-[15px] font-semibold tracking-[-.012em]">
+                  Assisted access — no session is open yet
+                </div>
+                <div className="ta text-[12.5px] text-[rgba(255,246,226,.72)] mt-0.5" lang="ta">
+                  உதவி அணுகல் — இன்னும் அமர்வு தொடங்கவில்லை
+                </div>
+              </>
             )}
+          </div>
+        </div>
 
-            {phase === 'scan' && (
-              <motion.div
-                key="scan"
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -12 }}
-                transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
-                className={panel}
-              >
-                <div className="surface-plate p-7">
-                  <h2 className="u-display text-[26px] text-ink" lang={lang}>
-                    {t('sahayak_scan_code', lang)}
-                  </h2>
+        <div className="flex items-center gap-4">
+          <div className="mono text-[10.5px] tracking-[.12em] text-right leading-[1.8]">
+            {beneficiary ? (
+              <>
+                {Math.ceil(remaining / 60000)} min remaining
+                <br />
+                Session {sessionId} · logged
+              </>
+            ) : (
+              <>
+                Code + PIN required
+                <br />
+                Every action is logged
+              </>
+            )}
+          </div>
+          <button
+            onClick={onExit}
+            className="mono text-[10px] tracking-[.11em] border border-[rgba(255,246,226,.45)] rounded-[3px] px-3 py-2 hover:bg-[#FFF6E2] hover:text-sah-ink transition-colors flex-none"
+          >
+            Exit
+          </button>
+        </div>
+      </header>
 
-                  <div className="well relative mt-5 mx-auto w-40 h-40 grid place-items-center">
-                    {['top-3 left-3 border-t border-l', 'top-3 right-3 border-t border-r',
-                      'bottom-3 left-3 border-b border-l', 'bottom-3 right-3 border-b border-r'].map((pos) => (
-                      <span
-                        key={pos}
-                        aria-hidden="true"
-                        className={`absolute w-6 h-6 rounded-[4px] border-ink/25 ${pos}`}
-                      />
-                    ))}
-                    <span className="u-meta">QR</span>
+      <div className="px-5 sm:px-11 py-9 sm:py-10">
+        {/* Entrances here are translate-only, as everywhere else in this
+            design: the signed-out panel carries the consent copy a volunteer
+            must read before they can act for someone, and whether it is
+            readable may not depend on a tween finishing. */}
+        <AnimatePresence mode="wait">
+          {!beneficiary ? (
+            <motion.div
+              key="off"
+              initial={{ y: 10 }}
+              animate={{ y: 0 }}
+              exit={{ y: -10 }}
+              transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+              className="max-w-[520px]"
+            >
+              <SahEyebrow>Assisted access</SahEyebrow>
+              <h2 className="m-0 mt-3.5 text-[30px] sm:text-[36px] font-bold tracking-[-.036em] leading-[1.12] text-[#2A2410]">
+                Who are you helping?
+              </h2>
+              <div className="ta text-[17px] sm:text-[18px] text-[#5A4A1E] mt-2.5" lang="ta">
+                நீங்கள் யாருக்கு உதவுகிறீர்கள்?
+              </div>
+              <p className="mt-4 mb-0 text-[15.5px] leading-[1.65] text-[#4A4020] max-w-[54ch]">
+                You need both the beneficiary&rsquo;s code and the PIN they set. The session lasts 15
+                minutes, everything you do is written to their log, and they can end it at any time.
+              </p>
+              <div className="ta text-[13.5px] text-[#6A5A2E] mt-2 max-w-[46ch]" lang="ta">
+                அமர்வு 15 நிமிடங்கள் மட்டுமே. நீங்கள் செய்யும் ஒவ்வொன்றும் அவர்களின் பதிவேட்டில் எழுதப்படும்.
+              </div>
+
+              <div className="flex flex-col gap-3.5 mt-7">
+                <div>
+                  <div className="mono text-[10px] tracking-[.12em] text-sah-ink mb-2">
+                    Beneficiary code
                   </div>
-
-                  <p className="u-meta mt-5" lang={lang}>
-                    {ta ? 'மாதிரி குறியீடுகள்' : 'Demo codes'}
-                  </p>
-                  <p className="tabular text-[14px] text-muted mt-1">100100 · 200200 · 300300</p>
-
                   <input
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={6}
                     value={codeInput}
                     onChange={(e) => setCodeInput(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && submitCode()}
+                    onKeyDown={(e) => e.key === 'Enter' && startSession()}
+                    inputMode="numeric"
+                    maxLength={10}
                     placeholder="100100"
-                    aria-label={t('sahayak_scan_code', lang)}
-                    className="w-full mt-4 rounded-well bg-surface-sub px-4 py-4 text-center
-                               text-[22px] tabular tracking-[0.3em] text-ink outline-none
-                               ring-1 ring-hairline focus:ring-2 focus:ring-ink/25
-                               transition-shadow duration-240 ease-composed"
+                    aria-label="Beneficiary code"
+                    className="w-full h-[58px] border-[1.5px] border-sah-ink rounded-[5px] bg-white px-[18px]
+                               font-mono text-[19px] tracking-[.22em] text-[#2A2410] outline-none
+                               placeholder:text-[#C9BCA0]"
                   />
-
-                  {err && <div className="amber-banner mt-3" lang={lang}>{err}</div>}
-
-                  <button onClick={submitCode} className="btn-primary w-full mt-5" lang={lang}>
-                    {ta ? 'பயனாளியை ஏற்று' : 'Load beneficiary'}
-                  </button>
+                  <div className="mono text-[9.5px] tracking-[.1em] text-[#8A7A4A] mt-2">
+                    Demo codes · 100100 · 200200 · 300300
+                  </div>
                 </div>
-              </motion.div>
-            )}
 
-            {phase === 'beneficiary' && beneficiary && (
-              <BeneficiaryView
-                key="b"
-                beneficiary={beneficiary}
-                lang={lang}
-                onInitiate={initiateFor}
-              />
-            )}
-          </AnimatePresence>
-        </div>
+                <div>
+                  <div className="mono text-[10px] tracking-[.12em] text-sah-ink mb-2">Their PIN</div>
+                  <div className="relative flex gap-[9px] w-[247px] max-w-full">
+                    <input
+                      type="password"
+                      inputMode="numeric"
+                      maxLength={PIN_LEN}
+                      value={pinInput}
+                      onChange={(e) => setPinInput(e.target.value.replace(/\D/g, ''))}
+                      onKeyDown={(e) => e.key === 'Enter' && startSession()}
+                      aria-label="Their PIN"
+                      className="absolute inset-0 w-full h-full opacity-0 z-10 cursor-pointer"
+                    />
+                    {Array.from({ length: PIN_LEN }).map((_, i) => (
+                      <div
+                        key={i}
+                        aria-hidden="true"
+                        className={`w-[58px] h-[58px] rounded-[5px] bg-white flex items-center justify-center text-[22px] text-[#2A2410] ${
+                          i === pinInput.length
+                            ? 'border-[1.5px] border-sah-ink'
+                            : 'border-[1.5px] border-[rgba(122,84,16,.4)]'
+                        }`}
+                      >
+                        {pinInput[i] ? '•' : i === pinInput.length ? (
+                          <span className="text-ink-15 animate-svPulse">|</span>
+                        ) : ''}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mono text-[9.5px] tracking-[.1em] text-[#8A7A4A] mt-2">
+                    Demo PIN · 9999
+                  </div>
+                </div>
+              </div>
+
+              {err && (
+                <div className="sahayak mt-4 px-4 py-3 text-[14px]" lang={lang}>
+                  {err}
+                </div>
+              )}
+
+              <button
+                onClick={startSession}
+                className="mt-6 min-h-[58px] px-[30px] bg-sah-ink text-[#FFF6E2] rounded-[4px] text-[16px] font-semibold hover:opacity-90 transition-opacity"
+              >
+                Start assisted session
+                <span className="ta font-normal opacity-75 ml-1.5" lang="ta">· அமர்வைத் தொடங்கு</span>
+              </button>
+
+              <p className="mt-3.5 mb-0 text-[13px] leading-[1.6] text-[#8A7A4A] max-w-[56ch]">
+                You will not be able to see their community or marital status, change their PIN, or
+                erase their answers.
+              </p>
+              <div className="ta text-[12.5px] text-[#8A7A4A] mt-1 max-w-[48ch]" lang="ta">
+                அவர்களின் சமூகம், திருமண நிலை உங்களுக்குக் காட்டப்படாது.
+              </div>
+            </motion.div>
+          ) : (
+            <BeneficiaryView
+              key="on"
+              beneficiary={beneficiary}
+              firstName={firstName}
+              lang={lang}
+              openedAt={openedAt}
+              actions={actions}
+              onInitiate={initiateFor}
+              onEnd={() => endSession(false)}
+            />
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );
 }
 
-function BeneficiaryView({ beneficiary, lang, onInitiate }) {
+/* ── signed in ─────────────────────────────────────────────────────────────
+   Same money grammar as the citizen's own reveal: cash carries weight, cover
+   is set lighter, and credit is mono inside a dashed box so a volunteer can
+   never read a loan ceiling aloud as money the beneficiary is owed.          */
+
+function BeneficiaryView({ beneficiary, firstName, lang, openedAt, actions, onInitiate, onEnd }) {
   const ta = lang === 'ta';
   const { schemes, loading } = useSchemes(beneficiary.state);
 
@@ -216,160 +320,242 @@ function BeneficiaryView({ beneficiary, lang, onInitiate }) {
     [beneficiary, schemes],
   );
 
-  const top = eligible.slice(0, 5);
-  const rows = formatTotals(totals, lang);
+  const t = totals || {};
+  const top = eligible.slice(0, 6);
+
+  const cells = [];
+  if (t.focusCashAnnual > 0) {
+    cells.push({
+      k: 'annual', en: 'Cash / year', taLabel: 'ஆண்டுக்கு',
+      value: formatRupees(t.focusCashAnnual),
+      cls: 'text-[26px] sm:text-[28px] font-extrabold tracking-[-.04em] text-[#2A2410]',
+    });
+  }
+  if (t.focusCashOneTime > 0) {
+    cells.push({
+      k: 'once', en: 'One-time', taLabel: 'ஒரு முறை',
+      value: formatRupees(t.focusCashOneTime), guard: 'Not a yearly amount',
+      cls: 'text-[22px] sm:text-[24px] font-bold tracking-[-.038em] text-[#2A2410]',
+    });
+  }
+  if (t.insuranceCover > 0) {
+    cells.push({
+      k: 'cover', en: 'Cover', taLabel: 'காப்பீடு',
+      value: formatRupees(t.insuranceCover), guard: 'Not money received',
+      cls: 'text-[22px] sm:text-[24px] font-medium tracking-[-.03em] text-[#5A4A1E]',
+    });
+  }
+  if (t.subsidyTotal > 0) {
+    cells.push({
+      k: 'subsidy', en: 'Subsidy', taLabel: 'மானியம்',
+      value: formatRupees(t.subsidyTotal), guard: 'A discount, not a payment',
+      cls: 'text-[22px] sm:text-[24px] font-medium tracking-[-.03em] text-[#5A4A1E]',
+    });
+  }
+
+  const ends = openedAt ? clock(openedAt + SESSION_MS) : null;
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
-      className="max-w-[720px] mx-auto space-y-4"
+      initial={{ y: 10 }}
+      animate={{ y: 0 }}
+      transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+      className="grid gap-8 lg:gap-9 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] items-start"
     >
-      {/* Who this session is about. Caste is used for matching but never shown. */}
-      <div className="card">
-        <div className="u-meta" lang={lang}>
-          {ta ? 'பயனாளி' : 'Beneficiary'} · {beneficiary.id}
+      {/* ═══ left ══════════════════════════════════════════════════════════ */}
+      <div className="min-w-0">
+        <SahEyebrow>{firstName}&rsquo;s schemes · read and assist only</SahEyebrow>
+        <h2 className="m-0 mt-3.5 text-[26px] sm:text-[32px] font-bold tracking-[-.034em] leading-[1.14] text-[#2A2410]">
+          {loading
+            ? `Checking schemes for ${firstName}`
+            : `${eligible.length.toLocaleString('en-IN')} schemes match ${firstName}`}
+        </h2>
+        <div className="ta text-[15px] text-[#5A4A1E] mt-2" lang="ta">
+          {loading
+            ? 'திட்டங்கள் சரிபார்க்கப்படுகின்றன'
+            : `${eligible.length} திட்டங்கள் பொருந்துகின்றன`}
         </div>
-        <div className="mt-3 flex items-start gap-4">
-          <div className="w-12 h-12 shrink-0 rounded-full bg-surface-sub grid place-items-center">
-            <span className="u-display text-[18px] text-ink-2">
-              {beneficiary.name.charAt(0)}
-            </span>
-          </div>
-          <div className="min-w-0">
-            <div className="text-lead font-semibold text-ink" lang={lang}>
-              {beneficiary.name}
-            </div>
-            <div className="text-[14px] text-muted mt-0.5" lang={lang}>
-              {ta ? `வயது ${beneficiary.age}` : `Age ${beneficiary.age}`}
-              {' · '}
-              {String(beneficiary.occupation).replace(/_/g, ' ')}
-              {beneficiary.district ? ` · ${beneficiary.district}` : ''}
-            </div>
-            <div className="text-[13px] text-muted mt-0.5 tabular" lang={lang}>
-              ₹{beneficiary.annual_income.toLocaleString('en-IN')}{' '}
-              {ta ? 'ஆண்டு வருமானம்' : 'a year'}
-            </div>
-          </div>
-        </div>
-      </div>
 
-      {loading && (
-        <div className="card" aria-busy="true">
-          <div className="h-5 w-1/2 rounded-full bg-surface-sub" />
-          <div className="mt-2 h-5 w-1/3 rounded-full bg-surface-sub" />
+        {/* who this is, without the two answers a helper must never see */}
+        <div className="mono text-[10px] tracking-[.11em] text-[#8A7A4A] mt-4">
+          Age {beneficiary.age} · {String(beneficiary.occupation).replace(/_/g, ' ')} ·{' '}
+          <span className="tabular">₹{Number(beneficiary.annual_income).toLocaleString('en-IN')}</span> a year
         </div>
-      )}
 
-      {/* The money, by kind. Each row is its own object — nothing here adds up. */}
-      {!loading && rows.length > 0 && (
-        <div className="space-y-3">
-          {rows.map((r) =>
-            r.tone === 'cash' ? (
-              <div key={r.key} className="card">
-                <div className="u-meta" lang={lang}>{r.label}</div>
-                <div className="u-display tabular text-[34px] leading-none text-ink mt-2">
-                  {r.value}
-                </div>
+        {loading ? (
+          <div className="mt-6 flex flex-col gap-2.5 max-w-[560px]" aria-busy="true" aria-hidden="true">
+            {[0, 1, 2].map((i) => (
+              <div
+                key={i}
+                className="border border-[rgba(122,84,16,.24)] rounded-[5px] bg-white px-4 py-4 flex flex-col gap-2.5"
+              >
+                <div className="h-4 rounded-[3px] bg-[rgba(122,84,16,.10)]" style={{ width: ['72%', '56%', '64%'][i] }} />
+                <div className="h-3 w-28 rounded-[2px] bg-[rgba(122,84,16,.10)]" />
               </div>
-            ) : r.tone === 'loan' ? (
-              <div key={r.key} className="well px-5 py-4 flex items-center justify-between gap-4">
-                <span className="text-[13px] text-muted" lang={lang}>↩ {r.label}</span>
-                <span className="tabular text-[16px] font-medium text-muted shrink-0">
-                  {r.value}
-                </span>
-              </div>
-            ) : (
-              <p key={r.key} className={`text-[14px] px-1 ${benefitToneClass(r.tone)}`} lang={lang}>
-                {r.label}
-              </p>
-            ),
-          )}
-        </div>
-      )}
-
-      {!loading && (
-        <div>
-          <h3 className="u-meta mb-3" lang={lang}>
-            {ta
-              ? `தகுதியான திட்டங்கள் · ${eligible.length}`
-              : `Eligible schemes · ${eligible.length}`}
-          </h3>
-
-          <div className="space-y-3">
-            {top.map(({ scheme }) => {
-              const b = scheme.benefit || {};
-              const money = formatBenefit(b, lang);
-
-              return (
-                <div key={scheme.id} className="card">
-                  <div className="u-meta" lang={lang}>
-                    {scheme.nationwide
-                      ? ta ? 'மத்தியம்' : 'Central'
-                      : (scheme.state || (scheme.states || [])[0] || '')}
-                  </div>
-
-                  <div className="mt-2 flex items-start justify-between gap-5">
-                    <h4 className="u-scheme-name text-scheme font-semibold text-ink min-w-0 flex-1" lang={lang}>
-                      {ta && scheme.name_ta ? scheme.name_ta : scheme.name_plain}
-                    </h4>
-
-                    {/* Cash only, in the display face. Everything else stays text. */}
-                    {b.cash ? (
-                      <div className="shrink-0 text-right">
-                        <div className="u-display tabular text-[22px] leading-none text-ink">
-                          {money.primary}
-                        </div>
-                        <div className="u-meta mt-1" lang={lang}>{money.secondary}</div>
-                      </div>
-                    ) : (
-                      <div className={`shrink-0 text-right text-[13px] ${benefitToneClass(money.tone)}`}>
-                        <div className="font-medium">{money.primary}</div>
-                        <div className="text-muted">{money.secondary}</div>
-                      </div>
+            ))}
+          </div>
+        ) : (
+          <>
+            {cells.length > 0 ? (
+              <div className="grid sm:grid-cols-3 mt-6 border border-[rgba(122,84,16,.28)] rounded-[6px] bg-white overflow-hidden">
+                {cells.map((c, i) => (
+                  <div
+                    key={c.k}
+                    className={`px-5 py-[18px] border-b sm:border-b-0 border-[rgba(122,84,16,.18)] ${
+                      i === cells.length - 1 ? 'sm:border-r-0 border-b-0' : 'sm:border-r'
+                    }`}
+                  >
+                    <div className="mono text-[9.5px] tracking-[.12em] text-sah-ink">{c.en}</div>
+                    <div className="ta text-[11.5px] text-[#8A7A4A]" lang="ta">{c.taLabel}</div>
+                    <div className={`tabular mt-1.5 ${c.cls}`}>{c.value}</div>
+                    {c.guard && (
+                      <div className="mono text-[9px] tracking-[.1em] text-[#8A7A4A] mt-1.5">{c.guard}</div>
                     )}
                   </div>
-
-                  {b.cash && b.loan_ceiling ? (
-                    <div className="well mt-3 px-4 py-2.5 flex items-center justify-between gap-3">
-                      <span className="text-[13px] text-muted" lang={lang}>
-                        ↩ {ta ? 'கடன் வசதி — திருப்பிச் செலுத்த வேண்டும்' : 'credit available — to be repaid'}
-                      </span>
-                      <span className="tabular text-[14px] font-medium text-muted shrink-0">
-                        {formatBenefit({ loan_ceiling: b.loan_ceiling }, lang).primary}
-                      </span>
-                    </div>
-                  ) : null}
-
-                  <MatchReason
-                    scheme={scheme}
-                    profile={beneficiary}
-                    lang={lang}
-                    className="mt-4"
-                  />
-
-                  <button
-                    onClick={() => onInitiate(scheme.id)}
-                    className="btn-primary compact mt-5 !py-3 !px-6 !text-[15px]"
-                    lang={lang}
-                  >
-                    {ta ? 'இவருக்காக விண்ணப்பி' : 'Start application'}
-                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-6 border border-dashed border-sah-rule rounded-[5px] px-4 py-3.5 max-w-[560px]">
+                <div className="text-[14.5px] text-[#4A4020]">
+                  None of these matches has published an amount. Do not promise a figure.
                 </div>
-              );
-            })}
-          </div>
+                <div className="ta text-[12.5px] text-[#8A7A4A] mt-1" lang="ta">
+                  தொகை அறிவிக்கப்படவில்லை — எந்தத் தொகையையும் உறுதியளிக்க வேண்டாம்.
+                </div>
+              </div>
+            )}
 
-          {close_matches.length > 0 && (
-            <p className="text-[14px] text-muted mt-4 px-1" lang={lang}>
-              {ta
-                ? `மேலும் ${close_matches.length} திட்டங்கள் கிட்டத்தட்ட பொருந்துகின்றன — ஊராட்சி அலுவலகத்தில் சரிபார்க்கவும்.`
-                : `${close_matches.length} more are near misses — worth checking at the Panchayat office.`}
-            </p>
-          )}
+            {/* Credit: mono, dashed, never beside the cash figure. */}
+            {t.loanCeiling > 0 && (
+              <div className="mt-3 border border-dashed border-sah-rule rounded-[4px] px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+                <span className="mono text-[9.5px] tracking-[.12em] text-[#8A7A4A]">
+                  Credit available — to be repaid
+                </span>
+                <span className="mono tabular text-[14px] tracking-[.04em] text-[#8A7A4A] flex-none">
+                  {formatRupees(t.loanCeiling)}
+                </span>
+              </div>
+            )}
+
+            {t.unvaluedCount > 0 && (
+              <div className="mono text-[9.5px] tracking-[.11em] text-[#8A7A4A] mt-3">
+                +{t.unvaluedCount} more matched · amount not published
+              </div>
+            )}
+
+            {/* ── the schemes themselves ────────────────────────────────── */}
+            <div className="mt-6 flex flex-col gap-2.5">
+              {top.map(({ scheme }) => {
+                const b = scheme.benefit || {};
+                const money = formatBenefit(b, lang);
+                const kind = {
+                  cash: 'Cash', loan: 'Credit', subsidy: 'Subsidy',
+                  insurance: 'Cover', inkind: 'In kind', unknown: 'Amount not published',
+                }[money.tone];
+
+                return (
+                  <div
+                    key={scheme.id}
+                    className="border border-[rgba(122,84,16,.24)] rounded-[5px] bg-white px-4 sm:px-[18px] py-4"
+                  >
+                    <div className="flex items-start justify-between gap-4 flex-wrap">
+                      <span className="min-w-0 flex-1">
+                        <span className="scheme-name block text-[15.5px] sm:text-[16px] text-[#2A2410]" lang={lang}>
+                          {ta && scheme.name_ta ? scheme.name_ta : scheme.name_plain}
+                        </span>
+
+                        {money.tone === 'loan' ? (
+                          <span className="mono inline-block mt-1.5 text-[9.5px] tracking-[.11em] text-[#8A7A4A] border border-dashed border-sah-rule rounded-[3px] px-2 py-1">
+                            Credit · {money.primary} · to be repaid
+                          </span>
+                        ) : money.tone === 'unknown' ? (
+                          <span className="mono block mt-1 text-[9.5px] tracking-[.11em] text-[#8A7A4A]">
+                            {kind}
+                          </span>
+                        ) : (
+                          <span className="mono block mt-1 text-[9.5px] tracking-[.11em] text-[#8A7A4A]">
+                            {kind} · <span className="tabular">{money.primary}</span> · {money.secondary}
+                          </span>
+                        )}
+                      </span>
+
+                      <button
+                        onClick={() => onInitiate(scheme.id)}
+                        className="text-[13.5px] px-3.5 py-2 border border-[rgba(122,84,16,.35)] rounded-[4px] text-sah-ink flex-none hover:bg-sah-ink hover:text-[#FFF6E2] transition-colors"
+                      >
+                        Help apply
+                        <span className="ta ml-1.5 opacity-80" lang="ta">· உதவி</span>
+                      </button>
+                    </div>
+
+                    {/* Why it matched — shown here too, so the helper can read
+                        the beneficiary's own answers back to her. */}
+                    <MatchReason scheme={scheme} profile={beneficiary} lang={lang} className="mt-3.5" />
+                  </div>
+                );
+              })}
+            </div>
+
+            {eligible.length > top.length && (
+              <div className="mono text-[9.5px] tracking-[.11em] text-[#8A7A4A] mt-3">
+                Showing {top.length} of {eligible.length.toLocaleString('en-IN')} matches
+              </div>
+            )}
+
+            {close_matches.length > 0 && (
+              <p className="mt-3 mb-0 text-[13.5px] leading-[1.6] text-[#6A5A2E] max-w-[62ch]">
+                {close_matches.length} more are near misses — worth checking at the Panchayat office.
+                <span className="ta block text-[12.5px] text-[#8A7A4A] mt-1" lang="ta">
+                  மேலும் {close_matches.length} திட்டங்கள் கிட்டத்தட்ட பொருந்துகின்றன.
+                </span>
+              </p>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* ═══ right ═════════════════════════════════════════════════════════ */}
+      <div className="flex flex-col gap-3.5 min-w-0">
+        <div className="border border-[rgba(122,84,16,.3)] rounded-[6px] bg-white px-[22px] py-5">
+          <div className="mono text-[10px] tracking-[.12em] text-sah-ink">Hidden from you</div>
+          <div className="flex flex-wrap gap-[7px] mt-3.5">
+            {[['Community', 'சமூகம்'], ['Marital status', 'திருமண நிலை']].map(([en, taLabel]) => (
+              <span
+                key={en}
+                className="mono text-[11px] tracking-[.08em] px-[11px] py-1.5 border border-dashed border-[rgba(122,84,16,.4)] rounded-full text-[#8A7A4A]"
+              >
+                {en} ·•••
+                <span className="ta ml-1.5" lang="ta">{taLabel}</span>
+              </span>
+            ))}
+          </div>
+          <p className="mt-3.5 mb-0 text-[13px] leading-[1.6] text-[#6A5A2E]">
+            These were used to match her schemes but are never shown to a helper, even one she trusts.
+          </p>
+          <div className="ta text-[12.5px] text-[#8A7A4A] mt-1.5" lang="ta">
+            இவை பொருத்தத்திற்குப் பயன்பட்டன — உதவியாளருக்குக் காட்டப்படாது.
+          </div>
         </div>
-      )}
+
+        <div className="border border-[rgba(122,84,16,.3)] rounded-[6px] px-[22px] py-5">
+          <div className="mono text-[10px] tracking-[.12em] text-sah-ink">This session</div>
+          <div className="text-[13.5px] leading-[1.65] text-[#4A4020] mt-2.5">
+            Opened {openedAt ? clock(openedAt) : '—'}. Ends automatically at {ends || '—'}.{' '}
+            {actions} {actions === 1 ? 'action' : 'actions'} logged so far. {firstName} will see all of
+            it in her profile.
+          </div>
+          <div className="ta text-[12.5px] text-[#8A7A4A] mt-2" lang="ta">
+            அமர்வு {ends} மணிக்குத் தானாக முடியும். ஒவ்வொரு செயலும் பதிவாகிறது.
+          </div>
+          <button
+            onClick={onEnd}
+            className="mt-4 min-h-[48px] px-5 border border-sah-ink rounded-[4px] text-[14.5px] font-medium text-sah-ink hover:bg-sah-ink hover:text-[#FFF6E2] transition-colors"
+          >
+            End session now
+            <span className="ta ml-1.5 font-normal opacity-80" lang="ta">· இப்போதே முடி</span>
+          </button>
+        </div>
+      </div>
     </motion.div>
   );
 }

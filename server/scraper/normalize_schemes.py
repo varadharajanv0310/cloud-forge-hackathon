@@ -685,8 +685,20 @@ def extract_disability_reqs(text, facets):
 # coverage. Patterns are deliberately specific — over-matching here would wrongly
 # EXCLUDE citizens, which is far worse than leaving a scheme unclassified.
 OCCUPATION_PROSE = [
-    ("farmer", r"\b(farmer|cultivator|agricultur(?:e|ist|al labour)|horticultur|"
-               r"tiller of the soil|krishi|ryot|kisan)\b"),
+    # NOTE: bare "agriculture" is deliberately NOT here. It is a sector and a
+    # ministry name, not an occupation, and it appears in the boilerplate of
+    # hundreds of schemes that have nothing to do with farming — "Ministry of
+    # Agriculture", "Agriculture University", "Agricultural Sciences". It tagged
+    # 281 schemes as farmer schemes that are not, including every ICAR and
+    # INSPIRE research fellowship; those then matched actual farmers, were
+    # scored as targeted because occupation agreed, carried a match chip reading
+    # "Farming" on a science fellowship, and drove the headline money for a
+    # smallholder to Rs 30 lakh a year. Only occupational forms count.
+    ("farmer", r"\b(farmers?|cultivators?|agriculturists?"
+               r"|agricultural (?:labour|labourer|worker|family|families|household)"
+               r"|(?:engaged in|practis\w+|practic\w+|dependent on|depending on"
+               r"|occupation is) agriculture"
+               r"|horticultur|tiller of the soil|krishi|ryot|kisan)\b"),
     ("fisher", r"\b(fisher(?:man|men|folk|women)?|fisheries|fish farmer)\b"),
     ("student", r"\b(student|scholar of|pupil|studying in|enrolled in|"
                 r"pursuing (?:a |an )?(?:course|degree|study))\b"),
@@ -705,8 +717,36 @@ OCCUPATION_PROSE = [
 ]
 
 
+# The name of the body that RUNS a scheme says nothing about who may claim it,
+# but it sits in the same prose the occupation patterns read. "Ministry of
+# Agriculture and Farmers Welfare" alone tagged every ICAR scheme as a farmer
+# scheme — including the Emeritus Scientist and Emeritus Professor fellowships,
+# which are for superannuated researchers and were paying a notional Rs 6 lakh a
+# year each into a smallholder's headline. Names are matched in their original
+# case (they are titles) and bounded so only the title itself is removed.
+ORG_NAME = re.compile(
+    r"\b(?:Ministry|Department|Dept\.?|Directorate|Council|Commission|Bureau|Authority)"
+    r"\s+(?:of|for)\s+"
+    r"(?:[A-Z][\w&.\-]*|and|of|for|the|[&,])(?:\s+(?:[A-Z][\w&.\-]*|and|of|for|the|[&,])){0,6}"
+)
+# Institutes whose own name carries a sector word.
+ORG_NAMED = re.compile(
+    r"\b(?:Indian Council of Agricultural Research|ICAR"
+    r"|Indian Agricultural Research Institute|IARI"
+    r"|Agricultural Universit(?:y|ies)"
+    r"|Krishi Vigyan Kendra)\b",
+    re.IGNORECASE,
+)
+
+
+def strip_org_names(text):
+    """Remove institution titles so they cannot be read as eligibility."""
+    t = ORG_NAME.sub(" ", text or "")
+    return ORG_NAMED.sub(" ", t)
+
+
 def extract_occupation_prose(text):
-    t = (text or "").lower()
+    t = strip_org_names(text).lower()
     return [name for name, rx in OCCUPATION_PROSE if re.search(rx, t)]
 
 

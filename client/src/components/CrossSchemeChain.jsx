@@ -40,8 +40,8 @@ export default function CrossSchemeChain({ schemeId, vault, lang = 'en', variant
 
     return (
       <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
+        initial={{ y: 10 }}
+        animate={{ y: 0 }}
         transition={{ duration: 0.32, delay: 0.4, ease: [0.22, 1, 0.36, 1] }}
         className="card"
       >
@@ -108,8 +108,8 @@ export default function CrossSchemeChain({ schemeId, vault, lang = 'en', variant
           return (
             <motion.article
               key={scheme.id}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
+              initial={{ y: 10 }}
+              animate={{ y: 0 }}
               transition={{ duration: 0.32, delay: i * 0.06, ease: [0.22, 1, 0.36, 1] }}
               onClick={() => nav(`/scheme/${scheme.id}`)}
               className="card shrink-0 w-[262px] p-5 cursor-pointer

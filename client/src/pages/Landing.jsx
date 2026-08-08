@@ -130,7 +130,7 @@ export default function Landing({ onStart, lang, setLang }) {
             <div className="mono text-[11.5px] tracking-[.15em] text-ink-55 mb-6 sm:mb-7">
               Free · No account · Nothing leaves your device
             </div>
-            <h1 className="h-hero m-0 max-w-[13ch]">Know what you are owed.</h1>
+            <h1 className="title-hero m-0 max-w-[13ch]">Know what you are owed.</h1>
             <div
               className="ta mt-5 font-medium text-ink-80 max-w-[16ch]"
               lang="ta"
@@ -180,7 +180,7 @@ export default function Landing({ onStart, lang, setLang }) {
         {/* ── how it works ─────────────────────────────────────────────── */}
         <div id="how" className="pt-20 sm:pt-24 pb-6 grid gap-10 lg:gap-16 lg:grid-cols-[0.9fr_2.1fr]">
           <div>
-            <h2 className="h-1 m-0">How it<br />works</h2>
+            <h2 className="title-1 m-0">How it<br />works</h2>
             <div className="ta text-[17px] text-ink-45 mt-3.5" lang="ta">
               இது எப்படி வேலை செய்கிறது
             </div>
@@ -189,7 +189,7 @@ export default function Landing({ onStart, lang, setLang }) {
             {steps.map(([n, en, ta, body]) => (
               <div key={n} className="pt-5 border-t-[1.5px] border-ink">
                 <div className="mono text-[12px] tracking-[.12em] text-ink-55">{n}</div>
-                <div className="h-3 mt-5">{en}</div>
+                <div className="title-3 mt-5">{en}</div>
                 <div className="ta text-[16px] text-ink-65 mt-1.5" lang="ta">{ta}</div>
                 <p className="mt-3.5 mb-0 text-[15.5px] leading-[1.6] text-ink-60">{body}</p>
               </div>

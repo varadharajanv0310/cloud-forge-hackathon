@@ -108,11 +108,19 @@ input, select, textarea { font: inherit; color: inherit; }
     font-family: 'Noto Sans Tamil', sans-serif;
   }
 
-  /* Display sizes. Tracking is tight and negative, as in the source. */
-  .h-hero  { font-size: clamp(46px, 6.4vw, 92px); line-height: .95;  font-weight: 700; letter-spacing: -.045em; text-wrap: balance; }
-  .h-1     { font-size: 40px; line-height: 1.06; font-weight: 700; letter-spacing: -.035em; }
-  .h-2     { font-size: 34px; line-height: 1.1;  font-weight: 700; letter-spacing: -.035em; }
-  .h-3     { font-size: 22px; line-height: 1.25; font-weight: 600; letter-spacing: -.02em; }
+  /* Display sizes. Tracking is tight and negative, as in the source.
+
+     Named `.title-*`, NOT `.h-1/.h-2/.h-3`: those are Tailwind's own height
+     utilities (4px / 8px / 12px). Tailwind's utilities layer is emitted after
+     this components layer, so the height wins and any heading carrying the
+     class collapses to a sliver — silently, with no error and no warning, and
+     only on the elements that happen to use both. Four separate screens hit
+     this and each worked around it locally before the cause was found. The
+     collision is removed here rather than avoided per-file.               */
+  .title-hero { font-size: clamp(46px, 6.4vw, 92px); line-height: .95;  font-weight: 700; letter-spacing: -.045em; text-wrap: balance; }
+  .title-1    { font-size: 40px; line-height: 1.06; font-weight: 700; letter-spacing: -.035em; }
+  .title-2    { font-size: 34px; line-height: 1.1;  font-weight: 700; letter-spacing: -.035em; }
+  .title-3    { font-size: 22px; line-height: 1.25; font-weight: 600; letter-spacing: -.02em; }
   .figure  { font-size: 54px; line-height: 1;    font-weight: 700; letter-spacing: -.04em; }
   .figure-sm { font-size: 36px; line-height: 1.05; font-weight: 800; letter-spacing: -.042em; }
 
@@ -121,6 +129,40 @@ input, select, textarea { font: inherit; color: inherit; }
     font-size: 17px; line-height: 1.35; font-weight: 600; letter-spacing: -.015em;
     text-wrap: balance; overflow-wrap: break-word; hyphens: none;
   }
+
+  /* ── v1 compatibility ───────────────────────────────────────────────────
+     The screens on the main path are ported. A handful of secondary
+     components — the document scanner, the deadline strip, Samjhao, the
+     cross-scheme chain — still carry the v1 class names, and those names no
+     longer resolve to anything, so they would render as unstyled text in the
+     middle of a finished design.
+
+     Mapping them onto the new roles here is deliberately one line each: it
+     costs nothing, it means no screen can render half-designed, and when
+     those components are eventually rewritten these three rules simply stop
+     matching anything and can be deleted.
+
+     NOTE: no font-size on `.u-display`. It carried `[lang=ta] { font-size:
+     .92em }` in v1, whose 0,2,0 specificity beat every Tailwind text-* class
+     (0,1,0) and collapsed Tamil headlines to ~15px wherever the two met.   */
+  .u-meta        { font-family: 'IBM Plex Mono', ui-monospace, monospace;
+                   text-transform: uppercase; letter-spacing: .12em;
+                   font-size: 9.5px; color: var(--ink-55); display: block; }
+  [lang='ta'] .u-meta, .u-meta[lang='ta'] {
+                   font-family: 'Noto Sans Tamil', sans-serif;
+                   text-transform: none; letter-spacing: .02em; font-size: 11.5px; }
+  .u-display     { font-weight: 700; letter-spacing: -.035em; line-height: 1.12; }
+  .u-scheme-name { font-size: 17px; line-height: 1.35; font-weight: 600;
+                   letter-spacing: -.015em; text-wrap: balance;
+                   overflow-wrap: break-word; hyphens: none; }
+
+  /* v1 colour utilities, remapped onto the new ink ramp. Same reasoning. */
+  .text-muted      { color: var(--ink-45); }
+  .text-body       { color: var(--ink-90); }
+  .bg-canvas       { background: var(--page); }
+  .bg-surface      { background: var(--white); }
+  .bg-surface-sub  { background: var(--panel); }
+  .bg-muted        { background: var(--panel); }
 
   /* ── Surfaces ───────────────────────────────────────────────────────────
      Small radii on purpose. This reads as a document, not an app.          */
@@ -210,6 +252,23 @@ input, select, textarea { font: inherit; color: inherit; }
       radial-gradient(46% 100% at 10% 0%, rgba(var(--bloom-peach), .34) 0%, rgba(var(--bloom-peach), .12) 46%, rgba(var(--bloom-peach), 0) 78%),
       radial-gradient(40% 90% at 88% 0%,  rgba(var(--bloom-lav), .30) 0%, rgba(var(--bloom-lav), 0) 74%);
   }
+  /* Warm — the one moment the palette is allowed to celebrate: a submitted
+     application. Peach and pink only; the cool half of the ramp sits out. */
+  .bloom-warm {
+    inset: 0;
+    background:
+      radial-gradient(52% 44% at 26% 6%,  rgba(var(--bloom-peach), .52) 0%, rgba(var(--bloom-peach), .22) 42%, rgba(var(--bloom-peach), 0) 76%),
+      radial-gradient(46% 40% at 82% 78%, rgba(var(--bloom-pink), .44) 0%, rgba(var(--bloom-pink), 0) 74%);
+  }
+  /* Neutral — for screens that must not compete with what is on them. */
+  .bloom-neutral {
+    inset: 0;
+    background:
+      radial-gradient(40% 36% at 12% 2%,  rgba(var(--bloom-lav), .30) 0%, rgba(var(--bloom-lav), 0) 72%),
+      radial-gradient(44% 38% at 90% 10%, rgba(var(--bloom-teal), .24) 0%, rgba(var(--bloom-teal), 0) 74%);
+  }
+  /* Sahayak runs on a helper's phone in a crowded office. Half strength. */
+  .bloom-quiet { opacity: .5; }
   .tabular { font-variant-numeric: tabular-nums; }
 
   /* Entrance that cannot hide content: opacity stays 1, only the translate

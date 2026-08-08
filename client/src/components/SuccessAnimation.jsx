@@ -32,19 +32,17 @@ export default function SuccessAnimation({ schemeName, elapsedSeconds, lang = 'e
 
   const timeLabel = ta ? formatTimeTa(elapsedSeconds) : formatTime(elapsedSeconds);
 
+  // Translate-only. This overlay confirms that a citizen's application was
+  // recorded; if a fade stalls, the confirmation is simply not there.
   const rise = (d = 0) => ({
-    initial: reduce ? false : { opacity: 0, y: 12 },
-    animate: { opacity: 1, y: 0 },
+    initial: reduce ? false : { y: 12 },
+    animate: { y: 0 },
     transition: { duration: 0.32, delay: d, ease: [0.22, 1, 0.36, 1] },
   });
 
   return (
     <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.24 }}
-      className="fixed inset-0 z-50 bg-canvas overflow-hidden"
+      className="fixed inset-0 z-50 bg-page overflow-hidden"
       role="status"
       aria-live="polite"
     >
@@ -53,8 +51,8 @@ export default function SuccessAnimation({ schemeName, elapsedSeconds, lang = 'e
       <div className="relative z-10 h-full flex flex-col items-center justify-center px-6 text-center">
         {/* The drawn check. One stroke, ink, on a white plate. */}
         <motion.div
-          initial={reduce ? false : { scale: 0.86, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
+          initial={reduce ? false : { scale: 0.86 }}
+          animate={{ scale: 1 }}
           transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
           className="w-[104px] h-[104px] rounded-full bg-surface shadow-e2 grid place-items-center"
           style={{ boxShadow: 'inset 0 0 0 1px var(--hairline), 0 8px 24px -12px rgba(20,19,26,.10)' }}
