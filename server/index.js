@@ -15,7 +15,11 @@ const app = express();
 const PORT = process.env.PORT || 5050;
 
 app.use(cors());
-app.use(express.json({ limit: '2mb' }));
+// Must sit ABOVE the 5MB base64 ceiling that extractDocument enforces, or the
+// body parser rejects a large photo first — with its own generic 413 and no
+// bilingual "retake or compress" message. The route's guard is the one that
+// should fire, because it is the one that can explain itself.
+app.use(express.json({ limit: '8mb' }));
 
 // Mount all routes under /api
 app.use('/api', intentExtraction);

@@ -5,8 +5,12 @@ import { useLanguage } from '../hooks/useLanguage.js';
 import { QUESTIONS } from '../data/profileSchema.js';
 import { getAuditLog } from '../utils/sahayakMock.js';
 import SahayakMode from '../components/SahayakMode.jsx';
+import DocumentScanner from '../components/DocumentScanner.jsx';
 import { triggerDemoNotification } from '../utils/alertEngine.js';
 import { useSchemes } from '../utils/schemesStore.js';
+import { speakImperative } from '../hooks/useTTS.js';
+import { ID_LABELS } from '../utils/idDocuments.js';
+import { QR_SUPPORT } from '../utils/documentQr.js';
 
 /**
  * Profile — ported from the Claude Design source (Sevai.dc.html, isWProfile).
@@ -91,6 +95,92 @@ function answerLabel(q, value) {
   };
 }
 
+/* ── Filling these answers from a document ──────────────────────────────────
+ *
+ * Until now the camera lived only in the apply flow, so a citizen filling in
+ * their own profile had no way to use the papers already in their pocket: they
+ * typed a name they had spelt on a hundred forms, or they left it blank. The
+ * scan below fills the blanks and nothing else.
+ *
+ * The rule is the same one Apply.jsx follows and it is worth stating plainly:
+ * a scan is EVIDENCE, never a CORRECTION. Whatever the citizen has already
+ * answered stands, even where the card disagrees — names are spelt differently
+ * across documents, ages on cards are wrong often enough to matter, and the
+ * person holding the phone is the authority on their own life. What was filled
+ * and what was deliberately left alone are both shown afterwards, so nothing
+ * appears to have been quietly overwritten.
+ */
+
+// The only values the gender question accepts. The reader may return anything.
+const SCAN_GENDERS = new Set(['male', 'female', 'transgender']);
+
+// Written in lower case because they are read mid-sentence: "Filled: name, age."
+const SCAN_FIELD_WORDS = {
+  name:          ['name',                          'பெயர்'],
+  gender:        ['gender',                        'பாலினம்'],
+  age:           ['age',                           'வயது'],
+  aadhaar_last4: ['the last 4 digits of Aadhaar',  'ஆதார் கடைசி 4 இலக்கம்'],
+};
+
+const isAnswered = (v) => v !== null && v !== undefined && v !== '';
+
+/**
+ * Copied from Apply.jsx rather than imported: a page is a screen, not a library,
+ * and importing one page's internals into another is how two screens end up
+ * unable to change independently. The care in it is the point, so it is carried
+ * over intact.
+ *
+ * The contract promises a strict YYYY-MM-DD, but this is model output on its way
+ * to a citizen's age on a government form, so it is parsed rather than trusted:
+ * a rolled-over date (2001-02-30) or an impossible age is discarded instead of
+ * quietly becoming an answer.
+ */
+function ageFromDob(dob) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dob || ''));
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const born = new Date(y, mo - 1, d);
+  if (born.getFullYear() !== y || born.getMonth() !== mo - 1 || born.getDate() !== d) return null;
+  const now = new Date();
+  let age = now.getFullYear() - y;
+  if (now.getMonth() < mo - 1 || (now.getMonth() === mo - 1 && now.getDate() < d)) age -= 1;
+  return age >= 0 && age <= 120 ? age : null;
+}
+
+const scanGender = (raw) => {
+  const g = String(raw || '').toLowerCase();
+  return SCAN_GENDERS.has(g) ? g : null;
+};
+
+/**
+ * Four digits, and never the number.
+ *
+ * Two sources, in order of how little they cost the citizen. A card's secure QR
+ * code carries the last four digits inside its reference id and does not carry
+ * the twelve — so a QR read hands over less about them than a photograph does,
+ * and is preferred for that reason before any accuracy argument. Failing that,
+ * the last four of a number that passed its own Verhoeff check.
+ *
+ * `result.idNumber` is deliberately never read here. The full number therefore
+ * never enters this page's scope at all, which is a stronger guarantee than
+ * remembering not to store it.
+ */
+function aadhaarLast4FromScan(result) {
+  if (result?.documentType !== 'aadhaar') return null;
+
+  const fromQr = String(result.aadhaarLast4 ?? '').replace(/\D/g, '');
+  if (fromQr.length === 4) return fromQr;
+
+  // An older scanner build sends no `validation` at all; absent is treated as
+  // unverified, never as fine.
+  const validation = result.validation || { ok: false, normalised: null };
+  if (!validation.ok) return null;
+  const digits = String(validation.normalised || '').replace(/\D/g, '').slice(-4);
+  return digits.length === 4 ? digits : null;
+}
+
 export default function Profile() {
   const { vault, setVault, resetVault } = useVault();
   const { lang, setLang } = useLanguage();
@@ -101,6 +191,8 @@ export default function Profile() {
   const [peek, setPeek] = useState({});
   const [showSahayak, setShowSahayak] = useState(false);
   const [nameDraft, setNameDraft] = useState(null);
+  const [scanOpen, setScanOpen] = useState(false);
+  const [scanNote, setScanNote] = useState(null);
 
   // The desktop rail's Sahayak entry links here with #sahayak, so the assisted
   // flow opens where its audit log already lives.
@@ -137,6 +229,89 @@ export default function Profile() {
   const saveName = () => {
     setVault({ name: (nameDraft || '').trim() });
     setNameDraft(null);
+  };
+
+  /**
+   * What a scan is allowed to do to these answers.
+   *
+   * There is no checklist line on this page, so — unlike the apply flow — there
+   * is no document-type mismatch to refuse over: any ID the reader recognises
+   * may fill a blank. The one refusal left is the honest one. An unreadable
+   * scan fills nothing at all and says so, in both languages and out loud,
+   * rather than closing the sheet as though something had happened.
+   */
+  const handleScanned = (result) => {
+    setScanOpen(false);
+
+    const refuse = (en, taMsg) => {
+      navigator.vibrate?.([200, 100, 200]);
+      speakImperative(ta ? taMsg : en, lang);
+      setScanNote({ kind: 'refused', en, ta: taMsg });
+    };
+
+    // The scanner reports an unreadable document rather than throwing, and a
+    // failed request arrives as an empty object. To the citizen both mean the
+    // same thing: we have not read this paper, so we cannot fill anything from
+    // it. hasOwnProperty rather than a plain lookup — 'constructor' and friends
+    // are truthy on any object, and the type reaches the screen.
+    const type = result?.documentType;
+    const known = typeof type === 'string' && Object.prototype.hasOwnProperty.call(ID_LABELS, type);
+    if (!known || type === 'unreadable') {
+      refuse(
+        'We could not read that. Nothing was filled in. Hold the card flat, in good light, and take it again.',
+        'படிக்க முடியவில்லை. எதுவும் நிரப்பப்படவில்லை. அட்டையை நல்ல வெளிச்சத்தில் நேராக வைத்து மீண்டும் எடுங்கள்.',
+      );
+      return;
+    }
+
+    // Two lists, built together: what this scan may fill, and what it offered
+    // for an answer the citizen has already given. The second list is the point
+    // of the summary — it is the evidence that nothing was overwritten.
+    const filled = [];
+    const kept = [];
+    const patch = {};
+    const offer = (key, value) => {
+      if (!isAnswered(value)) return;
+      if (isAnswered(vault[key])) kept.push(key);
+      else {
+        patch[key] = value;
+        filled.push(key);
+      }
+    };
+
+    offer('name', typeof result.name === 'string' ? result.name.trim() : null);
+    offer('gender', scanGender(result.gender));
+    // There is no date of birth in the vault, and adding one would be a new
+    // piece of identity to leak; the year count is what the schemes gate on.
+    offer('age', ageFromDob(result.dob));
+    offer('aadhaar_last4', aadhaarLast4FromScan(result));
+
+    if (filled.length === 0 && kept.length === 0) {
+      // Read successfully, and carrying nothing this page keeps — a ration card
+      // with no name on it, say. Saying so beats a sheet that closes silently,
+      // which reads as a bug and sends them back to the camera.
+      setScanNote({ kind: 'empty', docType: type });
+      return;
+    }
+
+    if (filled.length > 0) {
+      // Written through the functional form so each field is compared against
+      // the vault as it stands at write time, not as it stood when this handler
+      // was created. Filling a blank age or gender can only bring MORE questions
+      // into scope (maternity, marital status, pension), never orphan an
+      // existing answer, so no pruning pass is needed here.
+      setVault((prev) => {
+        const next = { ...prev };
+        for (const key of filled) if (!isAnswered(prev[key])) next[key] = patch[key];
+        return next;
+      });
+      speakImperative(
+        ta ? 'காலியாக இருந்தவை நிரப்பப்பட்டன' : 'The blank answers have been filled in',
+        lang,
+      );
+    }
+
+    setScanNote({ kind: 'filled', filled, kept });
   };
 
   // Demo only, and only ever with a scheme that publishes a real cash figure —
@@ -290,6 +465,42 @@ export default function Profile() {
                     setVault({ annual_income: digits === '' ? null : Number(digits) });
                   }}
                 />
+
+                {/* The camera, in the one block it can fill. It sits with the
+                    identity rows rather than at the top of the page because
+                    that is the honest scope of it: a card can fill a name, an
+                    age, a gender and four digits, and nothing else here. */}
+                <div className="rule-t px-5 py-[15px]">
+                  <button
+                    onClick={() => { setScanNote(null); setScanOpen(true); }}
+                    className="option flex items-center gap-3.5"
+                  >
+                    <span className="btn-icon flex-none" aria-hidden="true"><ScanGlyph /></span>
+                    <span className="min-w-0">
+                      <span className="block text-[15px] font-semibold tracking-[-.012em]">
+                        Scan a document to fill this in
+                      </span>
+                      <span className="ta mt-0.5 block text-[12.5px] text-ink-45" lang="ta">
+                        ஆவணத்தைப் படித்து நிரப்புங்கள்
+                      </span>
+                    </span>
+                  </button>
+
+                  <p className="mt-2.5 mb-0 text-[12.5px] leading-[1.6] text-ink-40 max-w-[62ch]">
+                    Only blank answers are filled. Anything you have already answered stays exactly as
+                    you gave it, even where the card says something else.
+                  </p>
+                  <div className="ta text-[12px] leading-[1.55] text-ink-30 mt-1 max-w-[52ch]" lang="ta">
+                    காலியாக உள்ளவை மட்டுமே நிரப்பப்படும். நீங்கள் ஏற்கனவே சொன்ன பதில்கள் மாற்றப்படாது.
+                  </div>
+
+                  {/* Before the tap, not after it: the sheet opens the camera
+                      on its own, so a citizen who wanted to read this first
+                      would already be looking at a permission prompt. */}
+                  <ScanPrivacy className="mt-3" />
+
+                  {scanNote && <ScanNote note={scanNote} onDismiss={() => setScanNote(null)} />}
+                </div>
               </div>
             </div>
           </div>
@@ -468,6 +679,67 @@ export default function Profile() {
       </div>
 
       {showSahayak && <SahayakMode lang={lang} onExit={() => setShowSahayak(false)} />}
+
+      {/* ── the scanner ──────────────────────────────────────────────────────
+          A plain conditional, NOT AnimatePresence — the same argument Apply
+          already makes for its voice panels, and it is far more serious here.
+          Framer Motion drives `exit` on requestAnimationFrame, and rAF is
+          suspended whenever the renderer treats the surface as non-visible. An
+          exit that never completes leaves this sheet mounted, and mounted means
+          three things at once: a full-screen overlay the citizen cannot get
+          past, a camera stream still held open (DocumentScanner releases the
+          lens on unmount), and the last card's name still on the glass. That
+          was reproduced, not theorised: with rAF stopped the overlay survived
+          the close indefinitely with the previous read still displayed.
+
+          The same instance is also re-adopted if the sheet is reopened inside
+          the exit window, so a fast second tap shows the previous person's
+          details on a shared phone. Unmounting on the spot is the only version
+          of this with no such window.
+
+          Closing is therefore a fact, not an animation. The entrance stays —
+          `.enter` is CSS and translate-only, so a stall there is cosmetic. */}
+      {scanOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-ink/50 flex flex-col justify-end"
+          onClick={() => setScanOpen(false)}
+        >
+          {/* The bottom padding clears the fixed bottom navigation, which is
+              also z-50 and paints after this sheet, so on a phone it covers the
+              last ~72px — the band the shutter button sits in. */}
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="enter bg-page rounded-t-[8px] border-t border-rule-16 p-5 pb-[88px] lg:pb-8
+                       max-w-lg mx-auto w-full max-h-[92dvh] overflow-y-auto"
+          >
+            <div className="w-10 h-1 bg-rule-14 rounded-full mx-auto mb-4" aria-hidden="true" />
+            <div className="mono text-[10.5px] tracking-[.13em] text-ink-55 text-center">
+              Hold it up to the camera
+            </div>
+            <div className="ta text-center text-[13px] text-ink-40 mt-1" lang="ta">
+              கேமராவில் காட்டுங்கள்
+            </div>
+            <p className="mt-3 mb-0 text-center text-[14px] leading-[1.6] text-ink-60">
+              Aadhaar, PAN, a driving licence or a voter ID — whichever you have with you.
+            </p>
+            <div className="ta text-center text-[12.5px] text-ink-30 mt-1" lang="ta">
+              ஆதார், பான், ஓட்டுநர் உரிமம், வாக்காளர் அட்டை — எது கையில் இருந்தாலும் சரி.
+            </div>
+
+            {/* Stated before the camera opens, not after the photograph. */}
+            <ScanPrivacy className="mt-4" />
+
+            <div className="mt-4">
+              <DocumentScanner
+                lang={lang}
+                autoOpen
+                onDataExtracted={handleScanned}
+                onClose={() => setScanOpen(false)}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -487,6 +759,126 @@ function MetaButton({ children, onClick, solid = false }) {
     >
       {children}
     </button>
+  );
+}
+
+/**
+ * The privacy position, written where the citizen is about to act on it.
+ *
+ * Which sentence is true depends on the browser, so the capability probe
+ * decides it and not the copy: where BarcodeDetector or DecompressionStream is
+ * missing there is no on-device path at all, and a promise that the photograph
+ * stays on the phone would simply be false. Accurate beats reassuring — a
+ * citizen who is told the truth about the second case can still choose it.
+ */
+function ScanPrivacy({ className = '' }) {
+  const onDevice = QR_SUPPORT.detector && QR_SUPPORT.gzip;
+  return (
+    <div className={`panel-flat px-4 py-3.5 ${className}`}>
+      <div className="mono text-[10px] tracking-[.12em] text-ink-55">What happens to the photo</div>
+      <div className="ta text-[12px] text-ink-30 mt-1" lang="ta">படம் என்ன ஆகும்</div>
+
+      {onDevice ? (
+        <>
+          <p className="mt-2 mb-0 text-[13px] leading-[1.6] text-ink-60 max-w-[58ch]">
+            If your card has a QR code, it is read here on this phone and the photograph never leaves
+            it. If it has no QR code, the photograph is sent over the internet to be read — Sevai
+            keeps no copy of it, and it is not saved on this phone either.
+          </p>
+          <div className="ta text-[12px] leading-[1.55] text-ink-40 mt-1.5 max-w-[48ch]" lang="ta">
+            அட்டையில் QR குறியீடு இருந்தால், அது இந்தத் தொலைபேசியிலேயே படிக்கப்படும் — படம் வெளியே செல்லாது.
+            இல்லாவிட்டால், படம் இணையம் வழியாகப் படிக்க அனுப்பப்படும்; சேவை அதன் நகலை வைத்துக்கொள்ளாது.
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="mt-2 mb-0 text-[13px] leading-[1.6] text-ink-60 max-w-[58ch]">
+            This browser cannot read a QR code, so the photograph is sent over the internet to be
+            read. Sevai keeps no copy of it, and it is not saved on this phone either.
+          </p>
+          <div className="ta text-[12px] leading-[1.55] text-ink-40 mt-1.5 max-w-[48ch]" lang="ta">
+            இந்த உலாவியால் QR குறியீட்டைப் படிக்க முடியாது; எனவே படம் இணையம் வழியாகப் படிக்க அனுப்பப்படும்.
+            சேவை அதன் நகலை வைத்துக்கொள்ளாது.
+          </div>
+        </>
+      )}
+
+      <p className="mt-2.5 mb-0 text-[12.5px] leading-[1.55] text-ink-30 max-w-[56ch]">
+        Only the last four digits of an Aadhaar are ever kept. A QR code carries only those four —
+        never the whole number — which is why it is read first.
+      </p>
+      <div className="ta text-[12px] leading-[1.5] text-ink-30 mt-1 max-w-[48ch]" lang="ta">
+        ஆதாரின் கடைசி நான்கு இலக்கங்கள் மட்டுமே வைக்கப்படும். முழு எண் ஒருபோதும் சேமிக்கப்படாது.
+      </div>
+    </div>
+  );
+}
+
+/**
+ * What the scan did — including, deliberately, what it did NOT do.
+ *
+ * The second sentence is the one that matters. A citizen who has just handed a
+ * card to an app needs to be able to see that their own answers survived it;
+ * "Left as you answered: gender" is that proof, and it is why the kept list is
+ * carried all the way here instead of being dropped as uninteresting.
+ */
+function ScanNote({ note, onDismiss }) {
+  const words = (keys, i) => keys.map((k) => SCAN_FIELD_WORDS[k]?.[i] ?? k).join(', ');
+
+  let eyebrow = ['What the scan filled in', 'ஸ்கேன் நிரப்பியவை'];
+  let en = '';
+  let taText = '';
+
+  if (note.kind === 'refused') {
+    eyebrow = ['Nothing was filled in', 'எதுவும் நிரப்பப்படவில்லை'];
+    en = note.en;
+    taText = note.ta;
+  } else if (note.kind === 'empty') {
+    const label = ID_LABELS[note.docType] || ID_LABELS.other;
+    eyebrow = ['Nothing to fill in', 'நிரப்ப ஏதுமில்லை'];
+    en = `We read your ${label.en}, but it did not carry anything this page keeps.`;
+    taText = `உங்கள் ${label.ta} படிக்கப்பட்டது; இந்தப் பக்கம் வைத்துக்கொள்ளும் தகவல் அதில் இல்லை.`;
+  } else {
+    en = note.filled.length > 0
+      ? `Filled: ${words(note.filled, 0)}.`
+      : 'Nothing needed filling in.';
+    taText = note.filled.length > 0
+      ? `நிரப்பியவை: ${words(note.filled, 1)}.`
+      : 'நிரப்ப ஏதுமில்லை.';
+    if (note.kept.length > 0) {
+      en += ` Left as you answered: ${words(note.kept, 0)}.`;
+      taText += ` நீங்கள் சொன்னபடி விடப்பட்டவை: ${words(note.kept, 1)}.`;
+    }
+  }
+
+  return (
+    <div className="enter panel-flat mt-3 px-4 py-3.5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="mono text-[10px] tracking-[.12em] text-ink-55">{eyebrow[0]}</div>
+          <div className="ta text-[12px] text-ink-30 mt-1" lang="ta">{eyebrow[1]}</div>
+        </div>
+        <MetaButton onClick={onDismiss}>Dismiss</MetaButton>
+      </div>
+      <p className="mt-2 mb-0 text-[14px] leading-[1.6] text-ink-90 max-w-[58ch]">{en}</p>
+      <div className="ta text-[12.5px] leading-[1.55] text-ink-45 mt-1.5 max-w-[48ch]" lang="ta">
+        {taText}
+      </div>
+    </div>
+  );
+}
+
+/** Corner brackets and a reading line — a scan, not a photograph. */
+function ScanGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
+      strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 8.5V6a2 2 0 0 1 2-2h2.5" />
+      <path d="M15.5 4H18a2 2 0 0 1 2 2v2.5" />
+      <path d="M20 15.5V18a2 2 0 0 1-2 2h-2.5" />
+      <path d="M8.5 20H6a2 2 0 0 1-2-2v-2.5" />
+      <path d="M4.5 12h15" />
+    </svg>
   );
 }
 

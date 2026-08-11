@@ -1,7 +1,29 @@
 /**
  * DocumentScanner.jsx
- * Camera (or file) capture → on-device quality check → /api/extract-document →
- * on-device number validation → onDataExtracted({ ...serverResult, validation }).
+ * QR (on device, offline) → else camera/file capture → on-device quality check →
+ * /api/extract-document → on-device number validation →
+ * onDataExtracted({ ...result, validation }).
+ *
+ * ── Why the QR is tried first ─────────────────────────────────────────────
+ * Vision OCR guesses. A QR code does not. Every Aadhaar issued since 2018 —
+ * printed letter, PVC card, e-Aadhaar PDF — carries UIDAI's secure QR, and
+ * reading it gives the exact name, date of birth, gender and address with no
+ * OCR error, no API key and no network call at all.
+ *
+ * It is also the privacy-preserving path, which is the part that matters here:
+ * the secure QR deliberately does NOT contain the full twelve-digit number. It
+ * carries only the last four, inside its reference id. A citizen who scans the
+ * code therefore hands us LESS about themselves than one who photographs the
+ * card, and we get better data for it. The result screen says so in both
+ * languages, because a citizen has no other way to know that.
+ *
+ * What we never say is "verified". We parse the payload; we do not check the
+ * signature on it — that needs UIDAI's public certificate and a real RSA
+ * verify. The wording throughout is "read from the card's QR code".
+ *
+ * The QR path degrades to nothing on a browser without BarcodeDetector
+ * (Safari/iOS today): QR_SUPPORT.detector is false, the poll never starts, no
+ * error is shown, and the shutter path below is exactly what it always was.
  *
  * ── Why this was rewritten ────────────────────────────────────────────────
  * The v1 camera never opened, for two independent reasons:
@@ -44,6 +66,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { verifyDocument } from '../utils/documentVerifier.js';
+import { QR_SUPPORT, decodeIndianDocumentQr, detectQrFromBitmap } from '../utils/documentQr.js';
 import { ID_LABELS, maskId, validateId } from '../utils/idDocuments.js';
 
 // ── Camera faults ───────────────────────────────────────────────────────────
@@ -159,6 +182,20 @@ const CONFIDENCE = {
   low:    { en: 'Hard to read — check every line', ta: 'படிக்கக் கடினம் — ஒவ்வொன்றையும் சரிபாருங்கள்' },
 };
 
+// A decoded QR is not a level of confidence, so it does not take one. 'Read
+// clearly' would understate it — nothing was read off a picture at all. And it
+// must never read 'verified': we parse the payload, we do not check the
+// signature on it. "Read from", never "verified by".
+const QR_READ = { en: 'Read from the QR code', ta: 'QR குறியீட்டிலிருந்து படிக்கப்பட்டது' };
+
+// A secure Aadhaar QR carries no full number, so validateId() is handed nothing
+// and correctly says so. That is an absence, not a failure, and the citizen is
+// told which — an alarm here would be a lie about their card.
+const QR_NOTHING_TO_CHECK = {
+  en: 'There was no number to check, and none was needed. The name, date of birth and address above came straight out of the code.',
+  ta: 'சரிபார்க்க எண் எதுவும் இல்லை; தேவையும் இல்லை. மேலே உள்ள பெயர், பிறந்த தேதி, முகவரி அனைத்தும் QR குறியீட்டிலிருந்தே வந்தவை.',
+};
+
 // Client-side stand-in with every contract key present, used only when the
 // extraction itself failed. `error` is what tells the caller not to trust it.
 const EMPTY_RESULT = {
@@ -216,6 +253,8 @@ export default function DocumentScanner({ onDataExtracted, lang = 'en', autoOpen
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
   const readyTimerRef = useRef(null);
+  const qrTimerRef = useRef(null);   // live QR poll — owned by stopStream, nothing else
+  const qrBusyRef = useRef(false);   // one detect in flight at a time
   const imageRef = useRef(null);   // base64 frame, kept off state — it is large
   const mountedRef = useRef(true);
   const startingRef = useRef(null);
@@ -233,6 +272,15 @@ export default function DocumentScanner({ onDataExtracted, lang = 'en', autoOpen
       clearInterval(readyTimerRef.current);
       readyTimerRef.current = null;
     }
+    // The QR poll dies with the stream it was watching. It is cleared HERE and
+    // nowhere else — stopStream already runs on unmount, on close, on capture
+    // and on every restart, so a second teardown path would only be a second
+    // place for the two to disagree.
+    if (qrTimerRef.current) {
+      clearInterval(qrTimerRef.current);
+      qrTimerRef.current = null;
+    }
+    qrBusyRef.current = false;
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     const video = videoRef.current;
@@ -268,6 +316,79 @@ export default function DocumentScanner({ onDataExtracted, lang = 'en', autoOpen
     if (markReady()) return;
     readyTimerRef.current = setInterval(markReady, 200);
   }, [markReady]);
+
+  // ── QR first ──────────────────────────────────────────────────────────────
+  // Never throws, never blocks: a source with no code, a payload that will not
+  // decode, or a browser with no BarcodeDetector all come back as null and the
+  // citizen carries on to the shutter without ever knowing this ran.
+  const scanForQr = useCallback(async (source) => {
+    if (!QR_SUPPORT.detector) return null;   // Safari/iOS today — skip in silence
+    try {
+      const payloads = await detectQrFromBitmap(source);
+      for (const payload of payloads) {
+        // A frame can hold more than one code. The first that decodes to a
+        // document we understand wins; the rest are somebody's wifi sticker.
+        const qr = await decodeIndianDocumentQr(payload);
+        if (qr) return qr;
+      }
+    } catch {
+      /* a frame that will not decode is not a failure — the vision path remains */
+    }
+    return null;
+  }, []);
+
+  // A decoded QR ends the scan there and then: no shutter, no quality gate, no
+  // network. `image` is the photo the citizen actually took, when there is one
+  // — the live scan takes none, and handing back a stale frame would be a lie
+  // about what was captured.
+  const acceptQr = useCallback((qr, image = null) => {
+    stopStream();                    // frees the lens AND clears the QR poll
+    imageRef.current = image;
+
+    const known = Object.prototype.hasOwnProperty.call(ID_LABELS, qr.documentType);
+    const type = known ? qr.documentType : 'other';
+
+    // The same second opinion the vision path gets, from the same function, so
+    // a QR read and a vision read reach onDataExtracted in one shape. For a
+    // secure Aadhaar QR the number genuinely is not in the payload, so this has
+    // nothing to check and says so; the result screen renders that as an
+    // absence rather than as a failed check.
+    let validation = { ok: false, normalised: null, reason: 'not_checked' };
+    try {
+      validation = validateId(type, qr.idNumber) || validation;
+    } catch {
+      /* keep the not_checked default */
+    }
+
+    setQuality(null);
+    setResult({ ...qr, documentType: type, validation });
+    setPhase('result');
+  }, [stopStream]);
+
+  // Watch the live video for a code. ~350ms is fast enough that a card held up
+  // to the lens resolves before the citizen has found the shutter, and slow
+  // enough to leave the decoder alone between passes on a cheap phone.
+  const startQrScan = useCallback(() => {
+    if (!QR_SUPPORT.detector) return;
+    if (qrTimerRef.current) clearInterval(qrTimerRef.current);
+    const gen = genRef.current;
+    qrTimerRef.current = setInterval(async () => {
+      if (qrBusyRef.current) return;
+      const video = videoRef.current;
+      // Same guard the shutter uses: a 0x0 video decodes to nothing, quietly.
+      if (!video || !video.videoWidth || !video.videoHeight) return;
+      qrBusyRef.current = true;
+      try {
+        const qr = await scanForQr(video);
+        // The stream can be torn down while the detector is working, and this
+        // callback outlives nothing else that would notice.
+        if (!qr || gen !== genRef.current || !mountedRef.current) return;
+        acceptQr(qr);
+      } finally {
+        qrBusyRef.current = false;
+      }
+    }, 350);
+  }, [acceptQr, scanForQr]);
 
   // Rear camera first. A document scanner that opens the selfie camera has
   // failed. An explicitly chosen device outranks it; plain video is the floor.
@@ -336,6 +457,7 @@ export default function DocumentScanner({ onDataExtracted, lang = 'en', autoOpen
         }
       }
       watchReady();
+      startQrScan();   // no-op without BarcodeDetector; cleared by stopStream
 
       // Only now. Before permission, every entry comes back with an empty
       // deviceId and an empty label — which is exactly what broke v1.
@@ -357,7 +479,7 @@ export default function DocumentScanner({ onDataExtracted, lang = 'en', autoOpen
     } finally {
       if (startingRef.current === deviceId) startingRef.current = null;
     }
-  }, [requestStream, stopStream, watchReady]);
+  }, [requestStream, startQrScan, stopStream, watchReady]);
 
   // Mount guard + the ONLY teardown that is tied to the component's life.
   // Declared first so mountedRef is true before the auto-open effect runs.
@@ -445,9 +567,24 @@ export default function DocumentScanner({ onDataExtracted, lang = 'en', autoOpen
     stopStream();                        // the lens is free the moment we are done
     imageRef.current = base64Image;
 
+    // One last look, on the frame that was actually captured. A hand steadies
+    // for the shutter in a way it never does during the live poll, so a code
+    // the poll kept missing often lands here on the first try.
+    //
+    // Deliberately BEFORE the quality gate: that gate exists to protect an OCR
+    // read from a dark or blurry photo, and a QR that has already decoded needs
+    // no protecting — the data is exact whatever the picture looks like.
+    // Sending someone back for a retake of a card we have already read would be
+    // an insult. When this lands, /api/extract-document is never called.
+    const qr = await scanForQr(canvas);
+    if (qr) {
+      acceptQr(qr, base64Image);
+      return;
+    }
+
     if (blob && !(await runQualityGate(blob))) return;
     await extract(base64Image);
-  }, [extract, runQualityGate, stopStream]);
+  }, [acceptQr, extract, runQualityGate, scanForQr, stopStream]);
 
   const handleFile = useCallback(async (e) => {
     const file = e.target.files?.[0];
@@ -458,6 +595,21 @@ export default function DocumentScanner({ onDataExtracted, lang = 'en', autoOpen
     setFault(null);
     setQuality(null);
     setResult(null);
+
+    // The picked image gets the same QR-first treatment as the viewfinder. A
+    // photo taken on someone else's phone and shared into this one is a normal
+    // way a card reaches Sevai at a camp, and its QR is worth exactly as much
+    // as a live one.
+    const qr = await scanForQr(file);
+    if (qr) {
+      // The QR is the payload; the picture is a keepsake for the application,
+      // so a re-encode that fails must not cost the citizen the read.
+      let image = null;
+      try { image = await fileToJpegDataUrl(file); } catch { /* keep the read, drop the photo */ }
+      if (!mountedRef.current) return;
+      acceptQr(qr, image);
+      return;
+    }
 
     if (!(await runQualityGate(file))) return;
     try {
@@ -472,7 +624,7 @@ export default function DocumentScanner({ onDataExtracted, lang = 'en', autoOpen
       });
       setPhase('quality');
     }
-  }, [extract, runQualityGate, stopStream]);
+  }, [acceptQr, extract, runQualityGate, scanForQr, stopStream]);
 
   // ── user actions ──────────────────────────────────────────────────────────
   const closeScanner = () => {
@@ -655,18 +807,41 @@ export default function DocumentScanner({ onDataExtracted, lang = 'en', autoOpen
     const validation = result.validation || { ok: false, normalised: null, reason: null };
     const conf = CONFIDENCE[result.confidence] || CONFIDENCE.low;
     const reason = validation.reason;
-    const reasonText = reason ? REASONS[reason] : null;
-    const neutral = !reason || NEUTRAL_REASONS.has(reason);
+
+    // Which path produced this. A QR read is the card's own data; a vision read
+    // is our best reading of a photograph of it. The difference is real, so the
+    // citizen is told which one they got rather than left to assume.
+    const fromQr = result.source === 'qr';
+
+    // A secure Aadhaar QR carries the last four digits and nothing more. Shown
+    // on their own, clearly labelled — this is NOT a masked twelve-digit number,
+    // because there is no twelve-digit number here to mask.
+    const last4 = fromQr && !result.idNumber && result.aadhaarLast4 ? String(result.aadhaarLast4) : null;
+
+    const nothingToCheck = fromQr && !result.idNumber;
+    const reasonText = nothingToCheck ? QR_NOTHING_TO_CHECK : (reason ? REASONS[reason] : null);
+    const neutral = nothingToCheck || !reason || NEUTRAL_REASONS.has(reason);
 
     const rows = [
       ['Name', 'பெயர்', result.name],
       ['Date of birth', 'பிறந்த தேதி', result.dob],
       ['Father / guardian', 'தந்தை / பாதுகாவலர்', result.fatherName],
+      // The address is shown on the QR path only. There it is the card's own
+      // text, exact, and about to be carried into an application — so hiding it
+      // would leave the citizen unable to check the one claim this screen makes.
+      // On the vision path it is a reading of a photograph and the screen keeps
+      // its existing, shorter shape.
+      ...(fromQr ? [['Address', 'முகவரி', result.address]] : []),
     ].filter(([, , v]) => v);
 
     return (
       <div className="enter">
-        {header('What we read', 'படித்தது')}
+        {/* "Read from", never "verified by". We decoded the card's own QR; we
+            did not check the signature on it, and the eyebrow is the first
+            place a citizen would take a claim of verification from. */}
+        {fromQr
+          ? header('Read from the card’s QR code', 'அட்டையின் QR குறியீட்டிலிருந்து படிக்கப்பட்டது')
+          : header('What we read', 'படித்தது')}
 
         <div className="panel mt-3 p-5">
           {/* The detected type leads. Everything else on this card is a
@@ -675,16 +850,67 @@ export default function DocumentScanner({ onDataExtracted, lang = 'en', autoOpen
           <div className="ta mt-1 text-[15px] text-ink-60" lang="ta">{label.ta}</div>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <span className="chip">
-              <span className="mono text-[9.5px] tracking-[.11em] text-ink-45">{conf.en}</span>
+              <span className="mono text-[9.5px] tracking-[.11em] text-ink-45">
+                {fromQr ? QR_READ.en : conf.en}
+              </span>
             </span>
-            <span className="ta text-[12px] text-ink-30" lang="ta">{conf.ta}</span>
+            <span className="ta text-[12px] text-ink-30" lang="ta">{fromQr ? QR_READ.ta : conf.ta}</span>
           </div>
+
+          {/* What a QR read actually is, said once, plainly. */}
+          {fromQr && (
+            <div className="rule-t mt-4 pt-4">
+              <p className="m-0 max-w-[52ch] text-[14px] leading-[1.6] text-ink-80">
+                These details came out of the QR code printed on the card itself. Nothing was read off
+                the picture and nothing was guessed, so there is no misread letter to hunt for.
+              </p>
+              <div className="ta mt-1.5 max-w-[44ch] text-[12.5px] leading-[1.6] text-ink-45" lang="ta">
+                இந்த விவரங்கள் அட்டையில் அச்சிடப்பட்ட QR குறியீட்டிலிருந்தே எடுக்கப்பட்டவை. படத்தைப் பார்த்து
+                ஊகித்தது எதுவும் இல்லை.
+              </div>
+              {/* The one thing we must not let anyone conclude. */}
+              {result.signaturePresent && (
+                <>
+                  <p className="mt-2.5 mb-0 max-w-[52ch] text-[12.5px] leading-[1.55] text-ink-30">
+                    The code carries a digital signature. Sevai read the code — it did not check that
+                    signature. This is what the card says, not proof from UIDAI.
+                  </p>
+                  <div className="ta mt-1 max-w-[44ch] text-[12px] leading-[1.55] text-ink-30" lang="ta">
+                    குறியீட்டில் மின்னணு கையொப்பம் உள்ளது. சேவை குறியீட்டைப் படித்தது — கையொப்பத்தைச்
+                    சரிபார்க்கவில்லை. இது அட்டை சொல்வது, UIDAI-இன் உறுதிப்பாடு அல்ல.
+                  </div>
+                </>
+              )}
+            </div>
+          )}
 
           {/* Never the whole number. This is routinely a shared phone and the
               screen is read over a shoulder. */}
           <div className="rule-t mt-4 pt-4">
-            <span className="mono block text-[9.5px] tracking-[.12em] text-ink-55">Number on the card</span>
-            {masked ? (
+            <span className="mono block text-[9.5px] tracking-[.12em] text-ink-55">
+              {last4 ? 'The number was not needed' : 'Number on the card'}
+            </span>
+            {last4 && (
+              <span className="ta mt-0.5 block text-[11.5px] text-ink-30" lang="ta">எண் தேவைப்படவில்லை</span>
+            )}
+            {last4 ? (
+              <>
+                {/* Not a redaction. An Aadhaar secure QR contains only these
+                    four digits, so there is nothing else here to hide — which
+                    is exactly why scanning the code gives away less than
+                    photographing the card. */}
+                <div className="mono tabular mt-1.5 text-[18px] tracking-[.08em] text-ink">{last4}</div>
+                <p className="mt-1.5 mb-0 max-w-[50ch] text-[12px] leading-[1.55] text-ink-30">
+                  The Aadhaar QR code does not contain the full twelve-digit number — only these last
+                  four. So Sevai never read one, and nothing more was taken from your card than what
+                  you see here.
+                </p>
+                <div className="ta mt-1 max-w-[44ch] text-[12px] text-ink-30" lang="ta">
+                  ஆதார் QR குறியீட்டில் முழு பன்னிரண்டு இலக்க எண் இல்லை — கடைசி நான்கு மட்டுமே. எனவே
+                  முழு எண்ணைச் சேவை படிக்கவே இல்லை.
+                </div>
+              </>
+            ) : masked ? (
               <>
                 <div className="mono tabular mt-1.5 text-[18px] tracking-[.08em] text-ink">{masked}</div>
                 <p className="mt-1.5 mb-0 max-w-[48ch] text-[12px] leading-[1.55] text-ink-30">
@@ -696,8 +922,12 @@ export default function DocumentScanner({ onDataExtracted, lang = 'en', autoOpen
               </>
             ) : (
               <>
-                <div className="mt-1.5 text-[15px] text-ink-45">No number could be read</div>
-                <div className="ta mt-0.5 text-[12.5px] text-ink-30" lang="ta">எண் எதுவும் படிக்கப்படவில்லை</div>
+                <div className="mt-1.5 text-[15px] text-ink-45">
+                  {fromQr ? 'The code carried no number' : 'No number could be read'}
+                </div>
+                <div className="ta mt-0.5 text-[12.5px] text-ink-30" lang="ta">
+                  {fromQr ? 'குறியீட்டில் எண் இல்லை' : 'எண் எதுவும் படிக்கப்படவில்லை'}
+                </div>
               </>
             )}
           </div>
@@ -731,7 +961,7 @@ export default function DocumentScanner({ onDataExtracted, lang = 'en', autoOpen
             ) : (
               <div className={neutral ? '' : 'rounded-[4px] border border-dashed border-rule-22 px-3.5 py-3'}>
                 <span className="mono block text-[9.5px] tracking-[.12em] text-ink-55">
-                  {neutral ? 'Not checked' : 'This did not pass the check'}
+                  {nothingToCheck ? 'Nothing to check' : neutral ? 'Not checked' : 'This did not pass the check'}
                 </span>
                 <p className="mt-1.5 mb-0 max-w-[50ch] text-[14px] leading-[1.55] text-ink-80">
                   {reasonText?.en || 'The number could not be verified on this device.'}
@@ -867,6 +1097,21 @@ export default function DocumentScanner({ onDataExtracted, lang = 'en', autoOpen
             </button>
             <span className="mono text-[9.5px] tracking-[.12em] text-ink-55">Fit the whole card in the frame</span>
             <span className="ta text-[12px] text-ink-30" lang="ta">அட்டை முழுவதும் சட்டத்திற்குள் இருக்கட்டும்</span>
+
+            {/* Only where there is a detector to do it. On a browser without
+                one this line would be a promise the phone cannot keep. */}
+            {QR_SUPPORT.detector && (
+              <>
+                <span className="max-w-[40ch] text-center text-[12px] leading-[1.55] text-ink-30">
+                  If the card has a QR code, just hold it steady — it reads itself, with no photo and
+                  no internet.
+                </span>
+                <span className="ta max-w-[34ch] text-center text-[12px] text-ink-30" lang="ta">
+                  அட்டையில் QR குறியீடு இருந்தால் அதை நிலையாகப் பிடித்தால் போதும் — படம் எடுக்காமலேயே
+                  தானாகப் படிக்கப்படும்.
+                </span>
+              </>
+            )}
           </div>
 
           {devices.length > 1 && (
