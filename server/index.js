@@ -8,7 +8,11 @@ import extractDocument from './routes/extractDocument.js';
 import { getClaude, MODEL } from './middleware/claudeClient.js';
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+// 5000 is taken by macOS ControlCenter (the AirPlay Receiver) on every recent
+// macOS. It answers requests with a 403, so the Vite proxy appeared to be
+// reaching an API — every /api call went to Apple's service instead, and the
+// document scanner's extraction silently failed. 5050 is out of that way.
+const PORT = process.env.PORT || 5050;
 
 app.use(cors());
 app.use(express.json({ limit: '2mb' }));

@@ -11,7 +11,10 @@ export const getClaude = () => {
   return client;
 };
 
-export const MODEL = 'claude-sonnet-4-20250514';
+// claude-sonnet-4-20250514 was pinned here and has been retired — every call
+// 404'd, and because each route soft-falls-back to a mock rather than a 500,
+// the whole AI surface looked like it worked while returning canned data.
+export const MODEL = process.env.CLAUDE_MODEL || 'claude-sonnet-5';
 
 // Shared helper: simple text completion with a system prompt + user message.
 export async function completeText({ system, user, max_tokens = 400, temperature = 0.3 }) {

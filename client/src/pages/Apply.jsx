@@ -15,6 +15,7 @@ import DocumentScanner from '../components/DocumentScanner.jsx';
 import { StateLoading } from '../components/AsyncStates.jsx';
 import { speakImperative } from '../hooks/useTTS.js';
 import { verifyDocument } from '../utils/documentVerifier.js';
+import { ID_LABELS, maskId } from '../utils/idDocuments.js';
 import { useVoiceTranscript } from '../hooks/useVoiceTranscript.js';
 import { createRecorder } from '../utils/speechUtils.js';
 
@@ -73,6 +74,58 @@ const WITHHELD = [
 // return anything; the vault schema is the authority, not the response.
 const VOICE_KEYS = new Set(['name', 'age', 'occupation', 'annual_income', 'state']);
 const NUMERIC_KEYS = new Set(['age', 'annual_income']);
+
+// ── reading a scan against the checklist line ───────────────────────────────
+/**
+ * A checklist line is myScheme's prose, not an enum: 'Aadhaar Card', 'Aadhar',
+ * 'PAN Card', 'Driving License/Licence' and 'Aadhaar Card / Voter ID' all occur
+ * in the corpus. So the line is read for every ID type it would accept and the
+ * whole set is kept — a line naming two documents must not reject the second.
+ *
+ * The word boundaries are load-bearing, not decoration. Unanchored `pan` claims
+ * 'Panchayat Certificate' and unanchored `ration` claims 'Self Declaration',
+ * which occurs 30 times in the corpus — either one would stand between a
+ * citizen and a line they are entitled to tick.
+ */
+const DOC_LINE_PATTERNS = [
+  ['aadhaar',         /a+dh?a+r/],            // aadhaar, aadhar, adhaar, aadaar
+  ['pan',             /\bpan\b/],
+  ['driving_licence', /driv|\bdl\b/],
+  ['voter_id',        /voter|epic|election/],
+  ['ration_card',     /\bration\b/],
+];
+
+function acceptedIdTypes(docLine) {
+  const s = String(docLine || '').toLowerCase();
+  return DOC_LINE_PATTERNS.filter(([, re]) => re.test(s)).map(([type]) => type);
+}
+
+const labelList = (types, key, join) => types.map((t) => ID_LABELS[t][key]).join(join);
+
+// The three types idDocuments.js can actually check a number against. Anywhere
+// else a failed validation means "no rule exists", not "the number is wrong",
+// and the screen must not say otherwise.
+const NUMBER_VERIFIABLE = new Set(['aadhaar', 'pan', 'driving_licence']);
+
+/**
+ * The contract promises a strict YYYY-MM-DD, but this is model output on its
+ * way to a citizen's age on a government form, so it is parsed rather than
+ * trusted: a rolled-over date (2001-02-30) or an impossible age is discarded
+ * instead of quietly becoming an answer.
+ */
+function ageFromDob(dob) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dob || ''));
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const born = new Date(y, mo - 1, d);
+  if (born.getFullYear() !== y || born.getMonth() !== mo - 1 || born.getDate() !== d) return null;
+  const now = new Date();
+  let age = now.getFullYear() - y;
+  if (now.getMonth() < mo - 1 || (now.getMonth() === mo - 1 && now.getDate() < d)) age -= 1;
+  return age >= 0 && age <= 120 ? age : null;
+}
 
 // Cash is the only kind that takes full ink; a loan is set in mono in a dashed
 // box further down, where it is typographically incapable of reading as cash.
@@ -178,24 +231,125 @@ export default function Apply() {
     }
   };
 
-  const handleDocExtracted = useCallback((data) => {
+  /**
+   * A scan result is a claim about a paper the citizen will carry to a counter,
+   * so nothing here ticks a box on the strength of the camera having fired.
+   * Three things must hold before a row goes green: the read succeeded, the
+   * document was legible, and it is the document that line actually asks for.
+   * Anything else leaves the row unticked and says why — a wrongly ticked box
+   * is discovered at the office with the queue behind them, which is the exact
+   * failure this page exists to prevent.
+   *
+   * The second argument is the captured image. It is deliberately not taken:
+   * the panel above promises the photograph is never stored, and the cheapest
+   * way to keep that promise is to never hold a reference to it.
+   */
+  const handleDocExtracted = useCallback((result) => {
     const docName = activeScannerDoc;
     setActiveScannerDoc(null);
     if (!docName) return;
 
-    setDocs((d) => ({ ...d, [docName]: { name: 'scanned.jpg', verified: true } }));
-    setDocErrors((e) => { const next = { ...e }; delete next[docName]; return next; });
+    // A refusal clears any earlier tick rather than sitting silently beside it:
+    // the row renders either 'checked' or the error, never both, so a tick left
+    // standing would swallow the message whole.
+    const refuse = (english, tamil) => {
+      navigator.vibrate?.([200, 100, 200]);
+      speakImperative(ta ? tamil : english, lang);
+      setDocs((d) => { const next = { ...d }; delete next[docName]; return next; });
+      setDocErrors((e) => ({ ...e, [docName]: { english_message: english, tamil_message: tamil } }));
+    };
 
-    if (data && !data.error) {
-      const updates = {};
-      if (data.name && !vault.name) updates.name = data.name;
-      if (data.gender && !vault.gender) {
-        const g = String(data.gender).toLowerCase();
-        if (g === 'male' || g === 'female' || g === 'transgender') updates.gender = g;
-      }
-      if (Object.keys(updates).length > 0) setVault(updates);
+    // The scanner reports an unreadable document rather than throwing, and a
+    // failed request arrives as an empty object. To the citizen both mean the
+    // same thing: we have not seen this paper, so we cannot say that we have.
+    const type = result?.documentType;
+    if (!type || !ID_LABELS[type] || type === 'unreadable') {
+      refuse(
+        'We could not read that. Hold the card flat, in good light, and take it again.',
+        'படிக்க முடியவில்லை. அட்டையை நல்ல வெளிச்சத்தில் நேராக வைத்து மீண்டும் எடுங்கள்.',
+      );
+      return;
     }
-  }, [activeScannerDoc, vault, setVault]);
+
+    // Lines like 'Income Certificate' name no ID type at all, and the reader
+    // has no value for one. An empty set is therefore no claim rather than a
+    // failed one — refusing there would make the camera useless on most of the
+    // corpus, and we would be refusing on a guess.
+    const accepted = acceptedIdTypes(docName);
+    if (accepted.length > 0 && !accepted.includes(type)) {
+      // Both documents get named. 'Wrong document' sends someone back to the
+      // camera holding the same paper.
+      const wantEn = labelList(accepted, 'en', ' or ');
+      const wantTa = labelList(accepted, 'ta', ' அல்லது ');
+      refuse(
+        type === 'other'
+          ? `We could not tell what this document is. This line needs your ${wantEn}.`
+          : `That looks like your ${ID_LABELS[type].en}. This line needs your ${wantEn}.`,
+        type === 'other'
+          ? `இது என்ன ஆவணம் என்று தெரியவில்லை. இங்கு ${wantTa} தேவை.`
+          : `இது ${ID_LABELS[type].ta} போல் தெரிகிறது. இங்கு ${wantTa} தேவை.`,
+      );
+      return;
+    }
+
+    // Only now may the row go green.
+    // An older scanner build sends no `validation` at all; absent is treated as
+    // unverified, never as fine — the number is then read but not believed.
+    const validation = result.validation || { ok: false, normalised: null, reason: null };
+
+    setDocErrors((e) => { const next = { ...e }; delete next[docName]; return next; });
+    setDocs((d) => ({
+      ...d,
+      [docName]: {
+        name: 'scanned.jpg',
+        verified: true,
+        idType: type,
+        // Masked at the moment of capture, so the full number never reaches
+        // component state and cannot be read over a shoulder on a shared phone.
+        masked: validation.ok ? maskId(type, result.idNumber) : null,
+        // Only said where a rule exists to fail. Silence elsewhere is honest:
+        // a ration card has no checksum to disappoint us.
+        numberUnread: NUMBER_VERIFIABLE.has(type) && !!result.idNumber && !validation.ok,
+      },
+    }));
+    speakImperative(
+      ta ? `${ID_LABELS[type].ta} சரிபார்க்கப்பட்டது` : `${ID_LABELS[type].en} checked`,
+      lang,
+    );
+
+    // In Sahayak mode the vault on screen is the beneficiary's session copy,
+    // while `setVault` writes the helper's own encrypted vault on this device.
+    // Filling it here would move one citizen's name, age and Aadhaar digits
+    // into another person's phone, so assisted scans fill nothing.
+    if (isSahayak) return;
+
+    // Their own answer always wins — a scan is evidence, never a correction.
+    // Written through the functional form so each field is compared against the
+    // vault as it stands at write time, not as it stood when this callback was
+    // created.
+    setVault((prev) => {
+      const next = { ...prev };
+      if (result.name && !prev.name) next.name = result.name;
+      if (!prev.gender) {
+        const g = String(result.gender || '').toLowerCase();
+        if (g === 'male' || g === 'female' || g === 'transgender') next.gender = g;
+      }
+      // There is no date of birth in the vault, and adding one would be a new
+      // piece of identity to leak; the year count is what the schemes gate on.
+      if (prev.age == null || prev.age === '') {
+        const derived = ageFromDob(result.dob);
+        if (derived != null) next.age = derived;
+      }
+      // Four digits and never the number: enough to recognise which card the
+      // form wants, useless to whoever picks the phone up next. Same field and
+      // shape the Profile page already writes.
+      if (type === 'aadhaar' && validation.ok && !prev.aadhaar_last4) {
+        const last4 = String(validation.normalised || '').replace(/\D/g, '').slice(-4);
+        if (last4.length === 4) next.aadhaar_last4 = last4;
+      }
+      return next;
+    });
+  }, [activeScannerDoc, isSahayak, lang, ta, setVault]);
 
   // ── Voice fill ────────────────────────────────────────────────────────────
   const startVoiceFill = async () => {
@@ -532,8 +686,12 @@ export default function Apply() {
             ) : (
               <div className="flex flex-col gap-2.5">
                 {required.map((d) => {
-                  const done = !!docs[d];
+                  const entry = docs[d];
+                  const done = !!entry;
                   const err = docErrors[d];
+                  // Only a scan knows what the paper was; a photo taken through
+                  // the file picker is still just a tick.
+                  const scanned = entry?.idType ? ID_LABELS[entry.idType] : null;
                   return (
                     <div key={d}>
                       <label
@@ -554,18 +712,41 @@ export default function Apply() {
                             <span className="block text-[15.5px] font-medium tracking-[-.012em] leading-[1.3]">{d}</span>
                             <span className="block text-[12.5px] text-ink-40 mt-1">
                               {done
-                                ? 'checked on this device'
+                                ? scanned
+                                  ? `${scanned.en} · checked on this device`
+                                  : 'checked on this device'
                                 : err
                                 ? err.english_message
                                 : 'Tap to take a photo'}
                             </span>
                             <span className="ta block text-[12.5px] text-ink-30 mt-0.5" lang="ta">
                               {done
-                                ? 'இந்த சாதனத்திலேயே சரிபார்க்கப்பட்டது'
+                                ? scanned
+                                  ? `${scanned.ta} · இந்த சாதனத்திலேயே சரிபார்க்கப்பட்டது`
+                                  : 'இந்த சாதனத்திலேயே சரிபார்க்கப்பட்டது'
                                 : err
                                 ? err.tamil_message
                                 : 'புகைப்படம் எடுக்க தட்டுங்கள்'}
                             </span>
+                            {/* Masked before it ever entered state — the last
+                                four digits are enough for the citizen to know
+                                we read the right card, and are all a shoulder
+                                behind them can take. */}
+                            {done && entry.masked && (
+                              <span className="mono tabular block text-[11px] tracking-[.08em] text-ink-30 mt-1.5">
+                                {entry.masked}
+                              </span>
+                            )}
+                            {done && entry.numberUnread && (
+                              <>
+                                <span className="block text-[12px] text-ink-30 mt-1.5">
+                                  The number did not read cleanly — copy it from the card itself.
+                                </span>
+                                <span className="ta block text-[12px] text-ink-25 mt-0.5" lang="ta">
+                                  எண் சரியாகப் படிக்கவில்லை — அட்டையிலிருந்தே பாருங்கள்.
+                                </span>
+                              </>
+                            )}
                           </span>
                           <span
                             className={`mono text-[9.5px] tracking-[.11em] flex-none px-2 py-1 rounded-[3px] border ${
