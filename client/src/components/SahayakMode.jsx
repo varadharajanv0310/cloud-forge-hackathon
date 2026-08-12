@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { SAHAYAK_PIN, BENEFICIARIES, appendAudit } from '../utils/sahayakMock.js';
+import { SahayakRedeem } from './SahayakHandover.jsx';
 import { evaluateAll } from '../utils/eligibilityEngine.js';
 import { useSchemes } from '../utils/schemesStore.js';
 import { formatBenefit, formatRupees } from '../utils/formatters.js';
@@ -284,6 +285,30 @@ export default function SahayakMode({ lang = 'en', onExit }) {
                 You will not be able to see their community or marital status, change their PIN, or
                 erase their answers.
               </p>
+
+              {/* The signed handover, offered above the typed code because it
+                  is the better door: nothing is spoken aloud in a queue, the
+                  code dies in two minutes, and it works exactly once. The typed
+                  code stays for a phone with no working camera. */}
+              <div className="mt-6 max-w-[520px]">
+                <SahayakRedeem
+                  lang={lang}
+                  onSession={(session) => {
+                    const b = {
+                      ...session.beneficiary,
+                      id: session.sessionId,
+                      name: session.beneficiary?.name || 'Beneficiary',
+                    };
+                    setBeneficiary(b);
+                    setOpenedAt(Date.now());
+                    appendAudit({
+                      sahayak_action: 'loaded_beneficiary_by_qr',
+                      scheme_id: null,
+                      beneficiary_id: b.id,
+                    });
+                  }}
+                />
+              </div>
               <div className="ta text-[12.5px] text-[#8A7A4A] mt-1 max-w-[48ch]" lang="ta">
                 அவர்களின் சமூகம், திருமண நிலை உங்களுக்குக் காட்டப்படாது.
               </div>

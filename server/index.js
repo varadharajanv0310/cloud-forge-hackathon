@@ -6,6 +6,7 @@ import schemeSummarizer from './routes/schemeSummarizer.js';
 import tts from './routes/tts.js';
 import extractDocument from './routes/extractDocument.js';
 import digilocker from './routes/digilocker.js';
+import sahayak from './routes/sahayak.js';
 import { getClaude, MODEL } from './middleware/claudeClient.js';
 
 const app = express();
@@ -30,6 +31,7 @@ app.use('/api', schemeSummarizer);
 app.use('/api', tts);
 app.use('/api', extractDocument);
 app.use('/api', digilocker);
+app.use('/api', sahayak);
 
 // Health check — useful for demo day ("is Claude wired up?")
 app.get('/api/health', (_, res) => {

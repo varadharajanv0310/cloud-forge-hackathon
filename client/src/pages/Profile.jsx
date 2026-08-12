@@ -5,6 +5,7 @@ import { useLanguage } from '../hooks/useLanguage.js';
 import { QUESTIONS } from '../data/profileSchema.js';
 import { getAuditLog } from '../utils/sahayakMock.js';
 import SahayakMode from '../components/SahayakMode.jsx';
+import { SahayakGrant } from '../components/SahayakHandover.jsx';
 import DocumentScanner from '../components/DocumentScanner.jsx';
 import { triggerDemoNotification } from '../utils/alertEngine.js';
 import { useSchemes } from '../utils/schemesStore.js';
@@ -684,10 +685,16 @@ export default function Profile() {
                 உதவியாளர் முறை
               </div>
               <p className="text-[13px] leading-[1.55] mt-2 mb-0 text-[color:var(--sah-ink-2)]">
-                Hand the phone to a volunteer or a centre operator. Time-boxed, PIN-gated, and every
-                action logged above.
+                Hand the phone to a volunteer or a centre operator. Time-boxed, and every action
+                logged above.
               </p>
             </button>
+
+            {/* The citizen's half of the handover. Deliberately on THIS page and
+                not inside Sahayak mode: the person granting access is the one
+                holding the phone now, and asking them to open the helper's
+                screen to authorise the helper is backwards. */}
+            <SahayakGrant vault={vault} lang={lang} />
 
             {/* Demo control — labelled as such, never dressed as product. */}
             <section className="border border-dashed border-rule-20 rounded-panel px-5 sm:px-6 py-5">
@@ -1143,16 +1150,11 @@ function DigiLockerPanel({ dl, lang, onConnect, onUse, onDisconnect }) {
           {isDemo ? 'DEMONSTRATION' : connected ? 'CONNECTED' : 'NOT CONNECTED'}
         </div>
       </div>
-      <div className="ta text-[12.5px] text-ink-30 mt-1" lang="ta">டிஜிலாக்கர்</div>
-
       <p className="mt-3 mb-0 text-[13.5px] leading-[1.6] text-ink-90 max-w-[62ch]">
         Your documents as the government issued them — Aadhaar, PAN, driving licence,
         income and community certificates. Nothing is read off a photograph, so nothing
         can be misread: the department states the value.
       </p>
-      <div className="ta text-[12.5px] leading-[1.55] text-ink-40 mt-1.5 max-w-[52ch]" lang="ta">
-        அரசு வழங்கிய ஆவணங்கள் — படத்திலிருந்து படிக்கப்படுவதில்லை.
-      </div>
 
       {/* The trade, stated at the point of the decision rather than after it. */}
       <p className="mt-2.5 mb-0 text-[12.5px] leading-[1.6] text-ink-40 max-w-[62ch]">
@@ -1165,9 +1167,6 @@ function DigiLockerPanel({ dl, lang, onConnect, onUse, onDisconnect }) {
           <div className="text-[13px] leading-[1.55] text-ink-90">
             This build has no DigiLocker partner credential, so nothing below contacts a
             government system. What you see is the flow, with sample documents marked DEMO.
-          </div>
-          <div className="ta text-[12px] leading-[1.5] text-ink-40 mt-1.5" lang="ta">
-            இது ஒரு மாதிரி மட்டுமே — எந்த அரசு அமைப்பும் தொடர்பு கொள்ளப்படவில்லை.
           </div>
         </div>
       )}
@@ -1202,7 +1201,6 @@ function DigiLockerPanel({ dl, lang, onConnect, onUse, onDisconnect }) {
               >
                 <div className="min-w-0">
                   <div className="text-[14.5px] font-medium leading-[1.3]">{d.name}</div>
-                  <div className="ta text-[12px] text-ink-30 mt-0.5" lang="ta">{label.ta}</div>
                   {/* Provenance IS the value of this route over a photograph,
                       so it is shown rather than tucked away. */}
                   <div className="mono text-[9.5px] tracking-[.1em] text-ink-40 mt-1.5">

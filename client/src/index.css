@@ -98,14 +98,42 @@ input, select, textarea { font: inherit; color: inherit; }
     text-transform: uppercase;
     letter-spacing: 0.12em;
   }
+  /* `.ta` is a historical name — it now means "the second language", whichever
+     that is. The family and leading come from --lang-font / --lang-lh, which
+     LanguageProvider sets from the citizen's state, so every element already
+     carrying this class re-scripts with no edit. Hardcoding Noto Sans Tamil
+     here rendered Devanagari and Bengali as tofu for most of India. */
   .ta {
-    font-family: 'Noto Sans Tamil', Archivo, sans-serif;
-    line-height: 1.5;
+    font-family: var(--lang-font, 'Noto Sans Tamil'), Archivo, sans-serif;
+    line-height: var(--lang-lh, 1.5);
   }
-  [lang='ta'] .mono, .mono[lang='ta'] {
+
+  /* THE GUARD.
+     Every `.ta` string written into this app so far is Tamil — 584 of them,
+     from a build that assumed one regional language. The state->language work
+     makes the FONT follow the citizen, but a font cannot translate: a reader in
+     Bihar would get Tamil words set in Devanagari, which is worse than nothing
+     because it looks like a rendering fault rather than a missing translation.
+
+     So a second-language line is shown only where it is genuinely in the
+     citizen's language. Until a string is translated it is simply absent, and
+     the English above it carries the screen alone. `.ta-ok` opts a string back
+     in once it IS in the right language — the language toggle's own label is
+     the first, since it renders the native name for whichever language that is.
+
+     This is deliberately a subtraction. Showing nothing is honest; showing the
+     wrong script is not. */
+  html[data-secondary]:not([data-secondary='ta']) .ta:not(.ta-ok) { display: none; }
+  /* Indic scripts have no uppercase, so the mono meta face drops its
+     transform and tracking for all of them — not only Tamil. */
+  [lang='ta'] .mono, .mono[lang='ta'],
+  [lang='hi'] .mono, [lang='mr'] .mono, [lang='ne'] .mono,
+  [lang='bn'] .mono, [lang='as'] .mono, [lang='pa'] .mono,
+  [lang='or'] .mono, [lang='gu'] .mono, [lang='te'] .mono,
+  [lang='kn'] .mono, [lang='ml'] .mono, [lang='ur'] .mono {
     text-transform: none;
     letter-spacing: 0.02em;
-    font-family: 'Noto Sans Tamil', sans-serif;
+    font-family: var(--lang-font, 'Noto Sans Tamil'), sans-serif;
   }
 
   /* Display sizes. Tracking is tight and negative, as in the source.
@@ -149,7 +177,7 @@ input, select, textarea { font: inherit; color: inherit; }
                    text-transform: uppercase; letter-spacing: .12em;
                    font-size: 9.5px; color: var(--ink-55); display: block; }
   [lang='ta'] .u-meta, .u-meta[lang='ta'] {
-                   font-family: 'Noto Sans Tamil', sans-serif;
+                   font-family: var(--lang-font, 'Noto Sans Tamil'), sans-serif;
                    text-transform: none; letter-spacing: .02em; font-size: 11.5px; }
   .u-display     { font-weight: 700; letter-spacing: -.035em; line-height: 1.12; }
   .u-scheme-name { font-size: 17px; line-height: 1.35; font-weight: 600;

@@ -7,6 +7,7 @@ import { QUESTIONS } from '../data/profileSchema.js';
 import { loadManifest } from '../utils/schemesStore.js';
 import { loadApplications } from '../utils/applications.js';
 import BottomNav from './BottomNav.jsx';
+import LangToggle from './LangToggle.jsx';
 
 /**
  * AppShell — ported from the Claude Design source (Sevai.dc.html, the desktop
@@ -169,25 +170,7 @@ export default function AppShell({ children, feedBadge = 0 }) {
 
         <div className="flex-1" />
 
-        <div className="flex rounded-full overflow-hidden border border-rule-16 flex-none">
-          <button
-            onClick={() => setLang('en')}
-            className={`mono px-[13px] py-1.5 text-[10.5px] tracking-[.1em] ${
-              lang === 'en' ? 'bg-ink text-white' : 'text-ink-70'
-            }`}
-          >
-            EN
-          </button>
-          <button
-            onClick={() => setLang('ta')}
-            lang="ta"
-            className={`ta px-[13px] py-1.5 text-[12.5px] ${
-              lang === 'ta' ? 'bg-ink text-white' : 'text-ink-70'
-            }`}
-          >
-            தமிழ்
-          </button>
-        </div>
+        <LangToggle />
 
         <button
           onClick={() => nav('/profile')}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { loadManifest } from '../utils/schemesStore.js';
+import LangToggle from '../components/LangToggle.jsx';
 
 /**
  * Landing — ported from the Claude Design source (Sevai.dc.html, isLanding).
@@ -101,25 +102,7 @@ export default function Landing({ onStart, lang, setLang }) {
           </nav>
 
           <div className="flex items-center gap-3.5">
-            <div className="flex rounded-full overflow-hidden border border-rule-16 bg-white/60">
-              <button
-                onClick={() => setLang('en')}
-                className={`mono px-3.5 py-[7px] text-[11.5px] tracking-[.10em] ${
-                  lang === 'en' ? 'bg-ink text-white' : 'text-ink-70'
-                }`}
-              >
-                EN
-              </button>
-              <button
-                onClick={() => setLang('ta')}
-                lang="ta"
-                className={`ta px-3.5 py-[7px] text-[13px] ${
-                  lang === 'ta' ? 'bg-ink text-white' : 'text-ink-70'
-                }`}
-              >
-                தமிழ்
-              </button>
-            </div>
+            <LangToggle className="bg-white/60" />
             <button onClick={onStart} className="btn-quiet hidden sm:block">Open the app</button>
           </div>
         </header>

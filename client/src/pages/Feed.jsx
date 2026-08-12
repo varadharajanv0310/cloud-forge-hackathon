@@ -7,6 +7,7 @@ import SchemeCard from '../components/SchemeCard.jsx';
 import FuzzyMatchCard from '../components/FuzzyMatchCard.jsx';
 import { formatRupees } from '../utils/formatters.js';
 import { getRelevantAlerts, requestNotificationPermission } from '../utils/alertEngine.js';
+import LangToggle from '../components/LangToggle.jsx';
 
 /**
  * Feed — ported from the Claude Design source (Sevai.dc.html: the mobile feed,
@@ -201,25 +202,7 @@ export default function Feed({ onAlertsChange }) {
           <div className="flex flex-col items-end gap-3 shrink-0">
             {/* The desktop chrome carries its own language switch; this one is
                 the phone's, and only the phone's. */}
-            <div className="lg:hidden flex rounded-full overflow-hidden border border-rule-16 bg-white/70">
-              <button
-                onClick={() => setLang('en')}
-                className={`mono px-[11px] py-1.5 text-[10.5px] tracking-[.1em] ${
-                  lang === 'en' ? 'bg-ink text-white' : 'text-ink-70'
-                }`}
-              >
-                EN
-              </button>
-              <button
-                onClick={() => setLang('ta')}
-                lang="ta"
-                className={`ta px-[11px] py-1.5 text-[12px] ${
-                  lang === 'ta' ? 'bg-ink text-white' : 'text-ink-70'
-                }`}
-              >
-                தமிழ்
-              </button>
-            </div>
+            <LangToggle size="sm" className="bg-white/70" />
 
             {!loading && checked > 0 && (
               <div className="hidden lg:block mono text-[10.5px] tracking-[.12em] text-ink-40 text-right leading-[1.8]">
