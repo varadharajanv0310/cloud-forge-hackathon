@@ -11,6 +11,8 @@ import { useSchemes } from '../utils/schemesStore.js';
 import { speakImperative } from '../hooks/useTTS.js';
 import { ID_LABELS } from '../utils/idDocuments.js';
 import { QR_SUPPORT } from '../utils/documentQr.js';
+import { getStatus, getAuthorizeUrl, listIssued, fetchDocument, disconnect, DL_TYPE_LABELS }
+  from '../utils/digilocker.js';
 
 /**
  * Profile — ported from the Claude Design source (Sevai.dc.html, isWProfile).
@@ -193,6 +195,7 @@ export default function Profile() {
   const [nameDraft, setNameDraft] = useState(null);
   const [scanOpen, setScanOpen] = useState(false);
   const [scanNote, setScanNote] = useState(null);
+  const [dl, setDl] = useState({ status: null, docs: null, busy: false, error: null });
 
   // The desktop rail's Sahayak entry links here with #sahayak, so the assisted
   // flow opens where its audit log already lives.
@@ -312,6 +315,59 @@ export default function Profile() {
     }
 
     setScanNote({ kind: 'filled', filled, kept });
+  };
+
+  /* ── DigiLocker ────────────────────────────────────────────────────────────
+   *
+   * The other way to fill the same blanks, and a materially different bargain.
+   * A photograph is read; a DigiLocker document is STATED by the issuer, so
+   * there is nothing to misread. The price is that the citizen signs in to a
+   * government service, which the QR scan never asks them to do. Both are
+   * offered plainly and the trade is spelled out, because which one is right
+   * depends on facts we do not have — whether they trust the service, whether
+   * they have the card in hand, whether there is signal at all.
+   *
+   * A pulled document goes through handleScanned() untouched: the server
+   * normalises it to the same shape the scanner emits, so the merge rule — fill
+   * only blanks, their answers always win, report what was left alone — is
+   * written once and cannot drift between the two routes.
+   */
+  useEffect(() => {
+    let live = true;
+    getStatus().then((status) => { if (live) setDl((d) => ({ ...d, status })); });
+    return () => { live = false; };
+  }, []);
+
+  // The callback redirects back with ?digilocker=connected, so a fresh status
+  // read is needed on return; without it the panel would still say "not
+  // connected" immediately after a successful handshake.
+  useEffect(() => {
+    if (!/[?&]digilocker=/.test(window.location.search)) return;
+    getStatus().then((status) => setDl((d) => ({ ...d, status })));
+    window.history.replaceState({}, '', window.location.pathname);
+  }, []);
+
+  const dlConnect = async () => {
+    setDl((d) => ({ ...d, busy: true, error: null }));
+    const res = await getAuthorizeUrl();
+    if (res?.url) { window.location.href = res.url; return; }
+    // No partner credential: load the demonstration list instead of pretending
+    // to send them somewhere. The panel says which it is.
+    const list = await listIssued();
+    setDl((d) => ({ ...d, busy: false, docs: list.documents, error: list.error || null }));
+  };
+
+  const dlUse = async (uri) => {
+    setDl((d) => ({ ...d, busy: true, error: null }));
+    const doc = await fetchDocument(uri);
+    setDl((d) => ({ ...d, busy: false, error: doc?.error || null }));
+    if (!doc?.error) handleScanned(doc);
+  };
+
+  const dlDisconnect = async () => {
+    await disconnect();
+    const status = await getStatus();
+    setDl({ status, docs: null, busy: false, error: null });
   };
 
   // Demo only, and only ever with a scheme that publishes a real cash figure —
@@ -500,6 +556,19 @@ export default function Profile() {
                   <ScanPrivacy className="mt-3" />
 
                   {scanNote && <ScanNote note={scanNote} onDismiss={() => setScanNote(null)} />}
+
+                  {/* ── DigiLocker ──────────────────────────────────────────
+                      Placed directly beneath the camera because it fills the
+                      same blanks, and a citizen choosing between them should
+                      see both bargains at once rather than discover the second
+                      one on another screen. */}
+                  <DigiLockerPanel
+                    dl={dl}
+                    lang={lang}
+                    onConnect={dlConnect}
+                    onUse={dlUse}
+                    onDisconnect={dlDisconnect}
+                  />
                 </div>
               </div>
             </div>
@@ -1043,3 +1112,124 @@ function TextRow({ label, labelTa, value, display, onSave, inputMode, maxLength,
     </div>
   );
 }
+
+/* ───────────────────────────────────────────────────────────────────────────
+   DigiLocker panel.
+
+   Three states, and the first one is the honest one for this build: without a
+   partner client id and secret issued by NeGD there is no DigiLocker to talk
+   to, so the panel says that in words on the screen rather than dressing a
+   demonstration up as a connection. The button is still offered — the flow is
+   worth showing — but it is labelled for what it is.
+
+   Wording throughout is "issued by", never "verified". DigiLocker tells us who
+   issued a document and when; we parse the signed XML but do not verify its
+   signature, and the difference between those two sentences is the difference
+   between a claim we can defend and one we cannot.
+   ─────────────────────────────────────────────────────────────────────────── */
+function DigiLockerPanel({ dl, lang, onConnect, onUse, onDisconnect }) {
+  const ta = lang === 'ta';
+  const { status, docs, busy, error } = dl;
+  if (!status) return null;
+
+  const isDemo = status.mode !== 'live' || !status.configured;
+  const connected = Boolean(status.connected);
+
+  return (
+    <section className="mt-4 border border-rule-16 rounded-[5px] bg-white/[.55] px-4 py-4">
+      <div className="flex items-baseline justify-between gap-3 flex-wrap">
+        <div className="mono text-[10px] tracking-[.12em] text-ink-55">DigiLocker</div>
+        <div className="mono text-[9px] tracking-[.11em] text-ink-30">
+          {isDemo ? 'DEMONSTRATION' : connected ? 'CONNECTED' : 'NOT CONNECTED'}
+        </div>
+      </div>
+      <div className="ta text-[12.5px] text-ink-30 mt-1" lang="ta">டிஜிலாக்கர்</div>
+
+      <p className="mt-3 mb-0 text-[13.5px] leading-[1.6] text-ink-90 max-w-[62ch]">
+        Your documents as the government issued them — Aadhaar, PAN, driving licence,
+        income and community certificates. Nothing is read off a photograph, so nothing
+        can be misread: the department states the value.
+      </p>
+      <div className="ta text-[12.5px] leading-[1.55] text-ink-40 mt-1.5 max-w-[52ch]" lang="ta">
+        அரசு வழங்கிய ஆவணங்கள் — படத்திலிருந்து படிக்கப்படுவதில்லை.
+      </div>
+
+      {/* The trade, stated at the point of the decision rather than after it. */}
+      <p className="mt-2.5 mb-0 text-[12.5px] leading-[1.6] text-ink-40 max-w-[62ch]">
+        It asks you to sign in to a government service. The camera scan does not — that one
+        works offline and gives away less. Neither is the right answer for everyone.
+      </p>
+
+      {isDemo && (
+        <div className="mt-3 border border-dashed border-rule-22 rounded-[4px] px-3.5 py-3">
+          <div className="text-[13px] leading-[1.55] text-ink-90">
+            This build has no DigiLocker partner credential, so nothing below contacts a
+            government system. What you see is the flow, with sample documents marked DEMO.
+          </div>
+          <div className="ta text-[12px] leading-[1.5] text-ink-40 mt-1.5" lang="ta">
+            இது ஒரு மாதிரி மட்டுமே — எந்த அரசு அமைப்பும் தொடர்பு கொள்ளப்படவில்லை.
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <div className="mt-3 text-[13px] leading-[1.55] text-ink-90">{error}</div>
+      )}
+
+      {!docs && (
+        <button
+          onClick={onConnect}
+          disabled={busy}
+          className="btn-quiet mt-3.5 disabled:opacity-50"
+          lang={lang}
+        >
+          {busy
+            ? (ta ? 'இணைக்கிறது…' : 'Connecting…')
+            : isDemo
+              ? (ta ? 'மாதிரியைப் பார்க்க' : 'See the demonstration')
+              : (ta ? 'டிஜிலாக்கருடன் இணை' : 'Connect DigiLocker')}
+        </button>
+      )}
+
+      {Array.isArray(docs) && docs.length > 0 && (
+        <div className="mt-3.5 flex flex-col gap-2">
+          {docs.map((d) => {
+            const label = DL_TYPE_LABELS[d.type] || DL_TYPE_LABELS.other;
+            return (
+              <div
+                key={d.uri}
+                className="border border-rule-12 rounded-[4px] px-3.5 py-3 flex items-start justify-between gap-3 flex-wrap"
+              >
+                <div className="min-w-0">
+                  <div className="text-[14.5px] font-medium leading-[1.3]">{d.name}</div>
+                  <div className="ta text-[12px] text-ink-30 mt-0.5" lang="ta">{label.ta}</div>
+                  {/* Provenance IS the value of this route over a photograph,
+                      so it is shown rather than tucked away. */}
+                  <div className="mono text-[9.5px] tracking-[.1em] text-ink-40 mt-1.5">
+                    Issued by {d.issuer || 'unknown'}
+                    {d.issuedOn ? ` · ${d.issuedOn}` : ''}
+                  </div>
+                </div>
+                <button
+                  onClick={() => onUse(d.uri)}
+                  disabled={busy}
+                  className="btn-quiet shrink-0 disabled:opacity-50"
+                  lang={lang}
+                >
+                  {ta ? 'இதைப் பயன்படுத்து' : 'Use this'}
+                </button>
+              </div>
+            );
+          })}
+
+          {connected && (
+            <button onClick={onDisconnect} className="mono text-[10px] tracking-[.11em] text-ink-40 mt-1 text-left">
+              Disconnect DigiLocker
+            </button>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+

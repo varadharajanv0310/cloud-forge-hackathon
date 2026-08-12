@@ -138,7 +138,10 @@ The identity vault sits deliberately on the client side of the boundary. Scheme 
 ### Prerequisites
 
 - Node.js 18 or later
-- An Anthropic API key
+- An Anthropic API key is **optional**. Without one the app runs end to end;
+  the AI routes return clearly-labelled mocks (`source: "mock"`) instead of
+  reading a document. Scheme matching, the corpus and the Aadhaar QR scanner
+  need no key and no network — they run entirely on the device.
 
 ### Installation
 
@@ -151,21 +154,39 @@ npm run install:all        # root, client and server dependencies
 ### Configuration
 
 ```bash
-cp .env.example server/.env
+cp server/.env.example server/.env
 ```
 
 | Variable | Required | Default | Purpose |
 |---|---|---|---|
-| `ANTHROPIC_API_KEY` | Yes | — | Scheme interpretation and matching |
-| `PORT` | No | `5000` | Server port |
+| `ANTHROPIC_API_KEY` | No | — | Vision OCR for documents, voice extraction. Unset → labelled mocks. |
+| `CLAUDE_MODEL` | No | `claude-sonnet-5` | Model override |
+| `PORT` | No | `5050` | API server port — **not 5000**, see below |
+| `CLIENT_ORIGIN` | No | `http://localhost:5173` | CORS origin; needs to match for the DigiLocker session cookie |
+| `DIGILOCKER_CLIENT_ID` | No | — | NeGD partner credential. Unset → the DigiLocker flow runs as a labelled demonstration. |
+| `DIGILOCKER_CLIENT_SECRET` | No | — | As above. Server-only; never reaches the browser. |
+| `ELEVENLABS_API_KEY` | No | — | Text to speech. Unset → the browser's own SpeechSynthesis. |
+
+> **Why not port 5000.** Recent macOS runs the AirPlay Receiver on port 5000 and it
+> answers every request with a 403. A dev proxy pointed at 5000 therefore looks like
+> it is reaching an API when it is reaching Apple's service — which is exactly how the
+> document scanner appeared to work while silently failing. The API defaults to 5050.
 
 ### Running
+
+Both processes are needed: the client serves the app, the API serves `/api/*`.
 
 ```bash
 npm run dev                # client and server concurrently
 ```
 
-Client at `http://localhost:5173`, server at `http://localhost:5000`.
+Client at `http://localhost:5173`, API at `http://localhost:5050`.
+
+To check the API is actually up (and not Apple's service answering for it):
+
+```bash
+curl http://localhost:5050/api/health
+```
 
 ## Project structure
 

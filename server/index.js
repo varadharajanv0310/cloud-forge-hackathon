@@ -5,6 +5,7 @@ import intentExtraction from './routes/intentExtraction.js';
 import schemeSummarizer from './routes/schemeSummarizer.js';
 import tts from './routes/tts.js';
 import extractDocument from './routes/extractDocument.js';
+import digilocker from './routes/digilocker.js';
 import { getClaude, MODEL } from './middleware/claudeClient.js';
 
 const app = express();
@@ -14,7 +15,9 @@ const app = express();
 // document scanner's extraction silently failed. 5050 is out of that way.
 const PORT = process.env.PORT || 5050;
 
-app.use(cors());
+// credentials:true so the DigiLocker session cookie survives the XHR round
+// trip. A wildcard origin cannot carry cookies, so the client origin is named.
+app.use(cors({ origin: process.env.CLIENT_ORIGIN || 'http://localhost:5173', credentials: true }));
 // Must sit ABOVE the 5MB base64 ceiling that extractDocument enforces, or the
 // body parser rejects a large photo first — with its own generic 413 and no
 // bilingual "retake or compress" message. The route's guard is the one that
@@ -26,6 +29,7 @@ app.use('/api', intentExtraction);
 app.use('/api', schemeSummarizer);
 app.use('/api', tts);
 app.use('/api', extractDocument);
+app.use('/api', digilocker);
 
 // Health check — useful for demo day ("is Claude wired up?")
 app.get('/api/health', (_, res) => {

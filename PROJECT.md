@@ -423,24 +423,29 @@ is safer than forcing it to route around the system.
 | Scheme card with match reasons | the Thread, rendering |
 | On-device encrypted vault | never transmitted |
 
+| Every screen on the design system | Feed, detail, apply, profile, applications, Sahayak — ported, verified in browser |
+| Document type detection | Aadhaar, PAN, driving licence — with the real Verhoeff checksum |
+| Aadhaar Secure QR, decoded on device | no dependency, no network, no API key |
+| Camera capture | three separate root causes fixed; verified opening in browser |
+
 ### Partially built
 
 | Component | State |
 |---|---|
-| **Feed** | Functional — 30-card windowing, category filters, money summary. **Visually a recolour of the old design, not a redesign.** |
-| **Scheme detail / Apply / Profile / Applications** | Migrated to the new schema and tokens; same structural criticism. |
-| **Camera document scan** | Full pipeline exists (capture → Claude vision → auto-fill) but **the model ID is retired** (§11), so it silently returns mock data. |
-| **Voice input** | Web Speech API captures a live transcript; server-side extraction exists but is subject to the same dead model ID. |
-| **Text-to-speech** | ElevenLabs integration works, but `ELEVENLABS_API_KEY` is missing from `.env.example`, so a fresh clone is silent. |
+| **Vision OCR fallback** | The pipeline is complete and correct, but with no `ANTHROPIC_API_KEY` set it returns clearly-labelled mocks (`source: "mock"`). One env var away from live. |
+| **DigiLocker** | Real OAuth 2.0 + PKCE, state validation, server-only tokens, issued-document list and pull — all implemented. Without a NeGD partner credential it runs in a mode labelled DEMONSTRATION on screen and `source: "demo"` in every payload. |
+| **Voice input** | Works in the apply flow (fill-by-speaking). **Not wired into onboarding** — `useTTS` is imported there but only `stop()` is called, so questions are never read aloud and there is no speech input. That is the one that would change who can use this. |
+| **Text-to-speech** | ElevenLabs integration works; the browser's own SpeechSynthesis is the fallback when no key is set. |
+| **Other Indian document QRs** | EPIC, Parivahan driving licence and vehicle RC carry QR codes, but their payloads are not publicly standardised and vary by state. Best-effort shape matching only, and reported as `medium`/`low` confidence rather than laundered into a fact. |
 
 ### Designed, not implemented **[NOT BUILT]**
 
 | Feature | Why it's not shipped |
 |---|---|
 | **WhatsApp / Telegram / SMS channels** | The core of the multi-channel concept. WhatsApp Business API needs Meta verification (weeks); Indian SMS needs DLT registration with a registered entity (weeks). **Telegram is free and needs no approval — this is the one to build next.** |
-| **DigiLocker integration** | Requires being an onboarded Requester Organisation with MeitY. Sandbox access itself requires organisational onboarding — not obtainable by a student team in time. |
 | **Toll-free number** | A 1800 series number goes through DoT/telco allocation. **Obtainable alternative:** a virtual number with IVR from an Indian CPaaS (Exotel, Knowlarity) delivers the entire user-facing benefit in days. |
-| **QR code for Sahayak** | Currently a mock QR graphic with three hardcoded beneficiary codes. Real QR is small work; the interesting part is making the token signed and expiring. |
+| **QR code for Sahayak** | Currently a mock QR graphic with three hardcoded beneficiary codes. Real QR is small work — `BarcodeDetector` is already wired for document scanning — and the interesting part is making the token signed and expiring. |
+| **Voice-driven onboarding** | The one gap that changes *who* can use the product. Voice already works in the apply flow; onboarding needs the question read aloud and the answer taken by speech. |
 | **Tamil scheme catalogue** | `name_ta` is null for all 4,643 schemes. The plan — one offline batch translation job baked into the data file — was scoped but never run. **This is the single highest-value remaining item for a Tamil Nadu audience.** |
 | **Application submission** | No government API exists to submit to. We link out to the official portal instead, and say so. |
 
@@ -453,8 +458,8 @@ is safer than forcing it to route around the system.
   prose, not our model.
 - **myScheme publishes a documents list for 0 of 4,643 schemes.** We recover them
   from prose, reaching only ~19% of schemes (12 of 233 in Tamil Nadu).
-- **Only 492 of 4,643 schemes publish a direct application URL** (1 of 233 in
-  Tamil Nadu). The rest link to their myScheme page.
+- **Only 508 of 4,707 scheme rows publish a direct department URL** (about 10%).
+  The rest link to their myScheme page, and the UI labels which is which.
 - **Only 5 schemes publish a closing date**, so deadline-driven features are
   largely inert by nature.
 - **67 individual schemes still claim over ₹10 lakh cash** — a residual tail of
@@ -462,15 +467,23 @@ is safer than forcing it to route around the system.
 
 **Our own gaps:**
 
-- **The Claude model ID is retired.** `server/middleware/claudeClient.js` pins
-  `claude-sonnet-4-20250514`, past its retirement date. All three AI routes catch
-  the failure and return mock data, so the app looks fine while every AI feature
-  is fake. **One-line fix — do this before any demo.**
-- The post-onboarding screens are a recolour, not a redesign.
-- Known UI defects: a closed 2023 scheme still appears in the feed; one match chip
-  reads "Farming" on a science fellowship; the "Details" button routes to
-  `/apply/` instead of `/scheme/`; the Apply screen displays the citizen's
-  community in plain text, which violates our own shared-screen privacy rule.
+- **No `ANTHROPIC_API_KEY` is set**, so the vision OCR fallback returns mocks. They
+  are labelled `source: "mock"` in the payload and never presented as a real read,
+  but the camera's OCR path is not live until a key is supplied. The QR path needs
+  no key and is genuinely live.
+- **No DigiLocker partner credential.** The OAuth flow is real and complete; without
+  a client id and secret from NeGD it runs against sample documents and says so on
+  screen, in words, not in a tooltip.
+- **`BarcodeDetector` does not exist on Safari or iOS.** The QR path is skipped
+  silently there and vision OCR handles the card instead — correct behaviour, but it
+  means the best experience is Android/Chrome today. A WASM decoder would close this.
+- **We parse the Aadhaar QR signature; we do not verify it.** Verifying needs UIDAI's
+  certificate and a real RSA verify. `signatureVerified` is hardcoded `false`
+  everywhere and the wording on screen is "read from the card's QR code", never
+  "verified by UIDAI". This distinction is deliberate and should be stated, not
+  glossed.
+- **PAN has no public checksum.** Format and the holder-type character are checked;
+  anything claiming more would be folklore.
 - `verified_by`, `district_applicants` and `total_applicants_this_month` are
   **synthetic demo data**, retained deliberately for the narrative. They are now
   seeded on the scheme id so they are reproducible rather than random. **They must
@@ -486,7 +499,11 @@ is safer than forcing it to route around the system.
 | Matches for a typical citizen | 3,364 | **215** (−94%) |
 | Education schemes for one student | 204 | **83** |
 | Disability schemes reachable | **0** | 221 in corpus, 14 for a given profile |
-| Headline money figure | ₹1.0 Cr (23% invented) | **₹1.38L** (top 5, checkable) |
+| Headline money figure | ₹1.0 Cr (23% invented) | **₹6,000/yr** for a smallholder — PM-KISAN's real figure |
+| Schemes wrongly tagged as farming | 281 (from the word "agriculture" in ministry boilerplate) | **0** |
+| Research fellowships in a farmer's top 5 | 5 (₹30.8 lakh/yr) | **0** |
+| Aadhaar single-digit errors caught | n/a | **100%** (Verhoeff, measured over 2.16M mutations) |
+| Aadhaar adjacent transpositions caught | n/a | **100%** — this is what separates Verhoeff from Luhn |
 | Schemes with a bogus income limit | 2 (`₹5/year`) | **0** |
 | Category accuracy | health 4, housing 1 | health 259, housing 118, disability 221 |
 | Cross-scheme links per scheme | 228 (everything linked to everything) | **3.4** |
