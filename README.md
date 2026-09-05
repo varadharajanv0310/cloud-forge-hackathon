@@ -1,15 +1,14 @@
 # Sevai
 
-> Welfare entitlement is the largest financial instrument a poor household owns,
-> and the hardest one to find. Sevai turns a citizen's profile into the list of
-> schemes that will actually pay them — on a phone they already have, in a
-> language they already speak.
+> Tells a citizen what government money they are already entitled to, and refuses
+> to lie to them about it.
 
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=white)
 ![Vite](https://img.shields.io/badge/Vite-5-646CFF?logo=vite&logoColor=white)
 ![Node](https://img.shields.io/badge/Node-18+-339933?logo=node.js&logoColor=white)
-![Schemes](https://img.shields.io/badge/corpus-4%2C707%20schemes-0033FF)
+![Schemes](https://img.shields.io/badge/corpus-4%2C643%20schemes-0033FF)
 ![Coverage](https://img.shields.io/badge/coverage-36%20states%20%26%20UTs-111)
+![Languages](https://img.shields.io/badge/languages-13-5B45A8)
 
 **CloudForge Hackathon** · Track 03 — Social Impact & Sustainability
 **PS 14 — Financial Inclusion & Empowerment**
@@ -18,128 +17,105 @@
 
 ## Why this is a financial inclusion problem
 
-Financial inclusion is usually read as bank accounts, credit, and insurance. For a
+Financial inclusion is usually read as bank accounts, credit and insurance. For a
 household at or below the poverty line, that reading skips the largest financial
 instrument they already hold.
 
 They are entitled — today, by name, under money already appropriated — to direct
 transfers, input subsidies, pensions, maternity benefits, scholarships and
 premium-subsidised crop insurance. This is not credit they must qualify for. It is
-income that has already been budgeted for them. And most of it is never drawn.
+income already budgeted for them. Most of it is never drawn.
 
-The barrier is not creditworthiness, collateral, or KYC. It is that nobody has told
+The barrier is not creditworthiness, collateral or KYC. It is that nobody has told
 them the money exists, in a form they can act on.
-
-PS 14 asks for four things: access to financial information, responsible financial
-services, financial literacy, and economic opportunity for underserved users.
-Unclaimed entitlement sits on all four at once. It is the highest-return financial
-information you can hand a rural household, because the money requires no repayment
-and carries no interest — it only requires knowing about it before the window shuts.
 
 ## The problem
 
-Central and state governments in India run several thousand welfare schemes at any
-one time. This repository's corpus alone holds **4,707** — 668 central, 4,039 across
-36 states and union territories. Each is written for a specific population. Most
-never reach it.
+This corpus alone holds **4,643 schemes** — 668 central, the rest across 36 states
+and union territories. Each is written for a specific population. Most never reach
+it.
 
 The first failure is discovery. A rural claimant learns a scheme exists through word
-of mouth, usually after the window has closed. They cannot look one up, because every
-official discovery channel — the state portal, the department site, the scheme PDF —
-assumes four things simultaneously: a smartphone, a data connection, a supported
-language, and the literacy to read a government form. The people with the strongest
-claim on these schemes are precisely the people least likely to hold all four.
+of mouth, usually after the window has closed. Every official discovery channel — the
+state portal, the department site, the scheme PDF — assumes four things at once: a
+smartphone, a data connection, a supported language, and the literacy to read a
+government form. The people with the strongest claim are the least likely to hold all
+four.
 
 The second failure is delegation. People who cannot complete an application hand
-their documents and their identity to whoever can operate the form — a relative with
-a smartphone, a village-level worker, an NGO volunteer, sometimes a paid
-intermediary. This is universal and entirely undocumented. The citizen has no record
-of what was done in their name and no way to withdraw access once given. Most systems
-pretend it does not happen, which is what leaves it unprotected.
-
-Sevai addresses both. It inverts discovery — instead of asking the citizen to search,
-it takes what it knows about them and returns what they are owed. And it makes
-delegation explicit, scoped and expiring rather than informal.
+their documents and their identity to whoever can operate the form. This is universal
+and entirely undocumented. The citizen has no record of what was done in their name
+and no way to withdraw access once given. Most systems pretend it does not happen,
+which is what leaves it unprotected.
 
 ## Approach
 
-**Meet the user on the channel they already own.** One eligibility engine sits behind
-four transports: SMS on a feature phone, WhatsApp, Telegram, and the web. A button
-phone with no data plan is treated as a first-class client rather than a degraded
-fallback, because for the target user it is the only client. *(Web is shipped; the
-three messaging adapters are specified, not built — see [What is built and what is
-designed](#what-is-built-and-what-is-designed).)*
+**Ask once, match against everything.** Seven questions — state, age, gender,
+community, ration card, work — and the engine evaluates that profile against every
+scheme the citizen could claim: all central schemes plus their own state's, around
+900 for Tamil Nadu, **checked on the device itself**. The questionnaire grows only
+where an answer opens a branch that matters: saying "farming" adds land ownership and
+acreage. A profile that triggers nothing finishes in seven; the fullest path runs to
+thirteen.
 
-**Ask once, match against everything.** The citizen answers a short adaptive
-questionnaire once — state, age, gender, community, ration card, occupation — into an
-on-device vault. It opens at seven questions and grows only where an answer opens a
-branch that matters: saying "farming" adds land ownership and acreage, saying
-"expecting a child" adds maternity criteria. A profile that triggers nothing finishes
-in seven; the fullest path runs to thirteen.
+**Every match shows its reasoning.** Each result prints the citizen's own answers
+that caused it, so the matching can be checked rather than trusted — and the screen
+names which of those answers, if changed, would drop the scheme from the list.
 
-The engine then evaluates that profile against every scheme they could claim: central
-plus their own state. For a Tamil Nadu citizen that is **901 schemes** (668 central +
-233 state), checked on the device. The citizen never reads a scheme document to find
-out whether it applies to them.
+**Reach is the architecture, not a feature.** One eligibility engine sits behind four
+transports — SMS on a feature phone, WhatsApp, Telegram and the web — with the button
+phone treated as a first-class client rather than a degraded fallback, because for
+the target user it is the only client. This repository holds the web client and the
+engine; the messaging adapters live in a separate repository and speak to the same
+engine.
 
-**Cross-scheme chaining.** Qualifying for one scheme is often predictive of
-qualifying for others — a landholding that triggers an input subsidy frequently also
-triggers crop insurance eligibility. After an application, the engine surfaces the
-adjacent schemes the newly confirmed attributes unlock. Relationships are precomputed
-into the corpus (average 3.2 per scheme) rather than rebuilt per query.
-
-**Tamil first, with speech throughout.** The interface runs in Tamil and English with
-live switching, and any screen can be read aloud. Literacy is not a precondition for
-use. Voice input is captured for the fields where typing is the barrier.
-
-### Honest money — the design decision that matters most here
+### Honest money — the decision the product turns on
 
 On a financial product, a confidently wrong rupee figure is worse than no figure at
 all. It is the number a household borrows against.
 
-The first version of this engine summed one amount per matched scheme, substituted
-₹50,000 whenever it could not parse the amount, and labelled the total "per year."
-That figure was wrong in three separate ways: it mixed a ₹3 lakh *loan ceiling* with a
-₹6,000 *annual transfer* with a one-time ₹50,000 *grant*, it invented a value for
-every scheme it failed to parse, and it annualised things that were not annual.
-
-The current engine returns a **breakdown that never mixes kinds and never invents a
-figure.** Money is separated into five kinds, and each carries the sentence a citizen
+Money is separated into kinds and never summed. Each carries the sentence a citizen
 needs in order to read it correctly:
 
 | Kind | What the screen says |
 |---|---|
 | Cash, every year | "Money paid to you every year, while you remain eligible." |
-| Insurance cover | "Not money you receive. It is the most a claim can be worth if you need it." |
+| One-time payment | "Paid once, not every year. Often in stages." |
 | Subsidy | "A discount, not a payment — you still pay the rest." |
 | In kind | "Equipment, seed, training and other help given directly. No cash value published." |
 | Credit available | "This is a borrowing limit, not income. Interest is charged, and it must be paid back." |
 
-The screen then states the rule outright: *"These are different kinds of help. They are
-not added together, and Sevai will never show you a single total."* Schemes that have
-not published what they pay are counted and named as such — "87 more schemes matched
-you but have not published what they pay" — rather than being dropped or assigned a
-guess.
+The screen then states the rule outright: *"These are different kinds of help. They
+are not added together, and Sevai will never show you a single total."* Schemes that
+publish no amount are counted and named as such — "65 more schemes matched you but
+have not published what they pay" — rather than dropped or assigned a guess.
 
-This is the financial-literacy component of PS 14, delivered where it is actually
-needed. A citizen who has understood that an insurance ceiling is not income, and that
-a credit limit must be repaid, has learned the distinction that predatory lending
-depends on them not knowing.
+This is the financial-literacy component of PS 14, delivered where it is needed. A
+citizen who has understood that an insurance ceiling is not income, and that a credit
+limit must be repaid, has learned the distinction predatory lending depends on them
+not knowing.
 
-The same principle governs matching. v1 returned 137 of 233 schemes for a typical
-profile — a phone book, not a feed — because income limits existed on only 37 schemes
-and occupation on 99. The corpus now carries structured facets for gender, caste,
-occupation, BPL status, student status, disability and residence, and institutional
-schemes (which no individual can claim) are dropped from a citizen's feed entirely.
-A match now means something.
+### The second language follows the citizen, not the browser
+
+Every screen sets a second language beside its English. Which one is derived from the
+citizen's **state** — the first thing onboarding asks, and required for scheme scoping
+anyway — rather than from a browser locale, which on a shared or second-hand phone is
+usually whatever the last owner set.
+
+Thirteen languages are typeset: English, Hindi, Tamil, Telugu, Kannada, Malayalam,
+Marathi, Gujarati, Bengali, Punjabi, Odia, Assamese and Urdu. The map is a default and
+the citizen can change it. Union territories with no single dominant regional language,
+and north-eastern states whose language of administration is English, are mapped to
+English deliberately rather than forced into Hindi.
+
+The reasoning is written into [`client/src/data/languages.js`](client/src/data/languages.js):
+showing a citizen in Bihar a script they cannot read is worse than showing nothing,
+because it occupies the space where help should be.
 
 ### Sahayak Mode — scoped delegated access
 
-The design turns on this. A citizen who cannot complete an application alone generates
-a PIN and gives it to someone they trust. That PIN opens a session against their
-account for one hour, during which the helper can search schemes and submit
-applications for them. The session then expires with no action required from the
-citizen.
+A citizen who cannot complete an application alone generates a PIN and gives it to
+someone they trust. That PIN opens a session against their account for one hour.
 
 | Property | Why it matters |
 |---|---|
@@ -150,306 +126,161 @@ citizen.
 Assisted access will happen whatever the software permits. Making it a first-class,
 constrained feature is safer than forcing it to route around the system.
 
-**Identity stays on the device.** The Citizen Identity Vault is encrypted in browser
-local storage and never transmitted. Matching runs locally against the profile; the
-backend sees scheme queries, never identity documents. A compromised server exposes
-what was searched for, not who searched.
-
-## Features
-
-| Capability | How it works |
-|---|---|
-| Scheme matching | Faceted eligibility engine evaluates a profile against central + home-state schemes on device |
-| Honest money | Amounts broken out into five kinds, each explained, never summed, never invented |
-| Adaptive onboarding | Opens at seven questions, branches to at most thirteen, tappable answers rather than typed input |
-| Match provenance | The citizen's own answers are printed on each result, so the reasoning can be checked rather than trusted |
-| Near-miss surfacing | Schemes the citizen narrowly fails are shown separately with the failing criterion named |
-| Cross-scheme chaining | Confirmed attributes from one application surface adjacent eligible schemes |
-| Sahayak Mode | PIN-issued, one-hour, audited delegated sessions |
-| Bilingual interface | Tamil and English with live in-place switching, no reload, no loss of state |
-| Text to speech | Any screen read aloud — ElevenLabs where a key is present, browser speech synthesis otherwise |
-| Deadline visualisation | Time remaining on each scheme's window, surfaced on the card |
-| Identity vault | Encrypted on-device profile store, never transmitted |
-| Application tracking | Status timeline per application, with a remediation path for rejections |
+**Identity stays on the device.** The vault is encrypted in browser local storage and
+never transmitted. Matching runs locally; the backend sees scheme queries, never
+identity documents. The profile can fill itself from a document through DigiLocker or
+by scanning an Aadhaar, PAN or driving-licence QR code.
 
 ## Screenshots
 
-Captured from the running build against one profile — a smallholder farmer in Tamil
-Nadu: SC, priority ration card, owns under an acre, no cattle.
+### The result — money separated by kind
 
-### Landing
+![Result](docs/video-frames/07-result.png)
 
-![Landing](docs/screenshots/hero.png)
+The screen the project exists for. 184 schemes matched this citizen; the money below
+is split into cash, one-time, subsidy and in-kind, each carrying the sentence that
+makes it readable, and the totals are never added together.
 
-The claim the product has to earn, and the three constraints it accepts: free, no
-account, nothing leaves the device.
+### The feed
 
-### Adaptive onboarding
+![Feed](docs/video-frames/10-feed.png)
 
-![Onboarding](docs/screenshots/onboarding.png)
+Matches sorted by fit, with category counts, and the strongest match surfaced together
+with the answers that caused it.
 
-One question at a time, in large type, with tappable answers. It opens at seven and
-branches only where an answer opens something that matters.
+### A single scheme
 
-### The result — money, separated by kind
+![Scheme detail](docs/video-frames/13-scheme-detail.png)
 
-![Result](docs/screenshots/result.png)
+PM-KISAN at ₹6,000 a year — a real published per-beneficiary figure — with *why this
+matched you* printed back from the citizen's own answers.
 
-The screen the whole project exists for. 253 schemes matched; the money below is split
-into cash, insurance cover, subsidy, in-kind and credit, each carrying the sentence
-that makes it readable, and the totals are never added together. 77 further schemes
-matched but publish no amount, and are counted as such rather than guessed at.
+### Sahayak Mode
 
-### Matched scheme feed
+![Sahayak](docs/video-frames/21-sahayak-session.png)
 
-![Scheme feed](docs/screenshots/feed-ta.png)
-
-The citizen searched for nothing — the engine evaluated their profile against all 901
-schemes they could claim and sorted what came back.
-
-### Live language switching
-
-![English feed](docs/screenshots/feed-en.png)
-
-The same screen in English. Interface copy, headings and navigation switch in place.
-Scheme titles come from the corpus and remain English — see [Limitations](#limitations).
-
-### Sahayak Mode — delegated access
-
-![Sahayak session](docs/screenshots/sahayak-session.png)
-
-A helper enters the citizen's PIN, then loads exactly one beneficiary by code. The
-session lasts an hour and expires on its own; every action taken inside it is written
-to an audit log the citizen can review. The PIN and the codes are printed on screen
-because this is a hackathon build — production would issue them cryptographically.
-
-### Application tracking
-
-![Applications](docs/screenshots/applications.png)
-
-A rejected application, with the reason named and the remediation path shown rather
-than a dead end. Two details carry the argument: the benefit is split into a one-time
-payment and a separately-framed credit line — *"credit available — to be repaid"* —
-and the panel below shows the SMS a citizen would receive, which is the channel the
-whole design is aimed at.
+A helper enters the citizen's PIN, then loads exactly one beneficiary by code. The PIN
+and the codes are printed on screen because this is a hackathon build; production
+would issue them cryptographically.
 
 ## Architecture
 
 ```
 Feature phone (SMS) ─┐
-WhatsApp ────────────┤
-Telegram ────────────┼──► channel adapters ──► eligibility engine ──► scheme corpus
-Web client ──────────┘        (designed)         (on device)        (sharded JSON)
-                                                      │
-                                       matched schemes + apply paths
-                                                      │
-      ┌───────────────────────────────────────────────┤
-      ▼                                               ▼
-Citizen Identity Vault                         Sahayak session
-(encrypted, on-device)                    (PIN · 1 hour · audited)
+WhatsApp ────────────┤   adapters — separate repository
+Telegram ────────────┤
+Web client ──────────┴──► eligibility engine ──► scheme corpus
+                             (on device)         (sharded JSON)
+                                  │
+                   matched schemes + apply paths
+                                  │
+      ┌───────────────────────────┤
+      ▼                           ▼
+Citizen Identity Vault      Sahayak session
+(encrypted, on-device)    (PIN · 1 hour · audited)
 ```
 
-The identity vault sits deliberately on the client side of the boundary. Matching needs
-the profile; the server does not — so the profile never crosses.
+The vault sits deliberately on the client side of the boundary. Matching needs the
+profile; the server does not — so the profile never crosses.
 
-The corpus is **sharded by state**: the client fetches `central.json` plus the one state
-file that applies. Adding the remaining states does not grow the payload a citizen
-downloads, which is what keeps this viable on a 2G connection.
+The corpus is **sharded by state**: the client fetches `central.json` plus the one
+state file that applies, so adding states does not grow what a citizen downloads.
 
-## Technology stack
+## Technology
 
-| Layer | Technology | Why |
-|---|---|---|
-| Client | React 18, Vite 5, React Router 6 | Fast iteration under hackathon time pressure |
-| Styling | TailwindCSS 3, Framer Motion 11 | Motion carries meaning for low-literacy users that text cannot |
-| Server | Node.js 18+, Express 4 | Thin proxy; holds no citizen state by design |
-| Language model | Claude (`@anthropic-ai/sdk`) via backend proxy | Scheme summarisation, intent extraction, document reading |
-| Speech | ElevenLabs REST, with Web Speech API fallback | Tamil pronunciation quality; degrades rather than fails without a key |
-| Corpus | Sharded JSON, harvested from `myscheme.gov.in` | 4,707 schemes, 36 states & UTs, harvested 7 Aug 2026 |
-| Harvester | Python + Playwright | Scheme fetch and normalisation into structured facets |
-| Storage | Browser local storage, encrypted | Keeps the identity vault off the server |
+| Layer | Technology |
+|---|---|
+| Client | React 18, Vite 5, React Router 6, TailwindCSS 3, Framer Motion 11, PWA service worker |
+| Server | Node.js 18, Express 4 — stateless proxy, holds no citizen data |
+| Language model | Claude `claude-sonnet-5` via `@anthropic-ai/sdk` — scheme summarisation, intent extraction, document field extraction |
+| Speech | ElevenLabs REST, with the Web Speech API as fallback so it degrades rather than fails |
+| Identity | Encrypted localStorage vault, DigiLocker, Aadhaar / PAN / driving-licence QR parsing |
+| Corpus | 4,643 schemes from `myscheme.gov.in`, harvested with Python + Playwright |
+| Eligibility | Faceted rule engine, entirely client-side |
 
 ## Getting started
-
-### Prerequisites
-
-- Node.js 18 or later
-- An Anthropic API key is **optional**. Without one the app runs end to end;
-  the AI routes return clearly-labelled mocks (`source: "mock"`) instead of
-  reading a document. Scheme matching, the corpus and the Aadhaar QR scanner
-  need no key and no network — they run entirely on the device.
-
-### Installation
 
 ```bash
 git clone https://github.com/varadharajanv0310/cloud-forge-hackathon.git
 cd cloud-forge-hackathon
-npm run install:all        # root, client and server dependencies
+npm run install:all
+cp .env.example server/.env      # add your keys
+npm run dev
 ```
 
-### Configuration
+Client at `http://localhost:5173`, server at `http://localhost:5000`.
 
-```bash
-cp server/.env.example server/.env
-```
+| Variable | Required | Purpose |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | Yes | Scheme summarisation, intent extraction, document reading |
+| `ELEVENLABS_API_KEY` | No | Speech. Without it `/api/tts` returns `503` and the client falls back to browser synthesis |
+| `CLAUDE_MODEL` | No | Overrides the default `claude-sonnet-5` |
+| `PORT` | No | Server port, default `5000` |
 
-| Variable | Required | Default | Purpose |
-|---|---|---|---|
-| `ANTHROPIC_API_KEY` | No | — | Vision OCR for documents, voice extraction. Unset → labelled mocks. |
-| `CLAUDE_MODEL` | No | `claude-sonnet-5` | Model override |
-| `PORT` | No | `5050` | API server port — **not 5000**, see below |
-| `CLIENT_ORIGIN` | No | `http://localhost:5173` | CORS origin; needs to match for the DigiLocker session cookie |
-| `DIGILOCKER_CLIENT_ID` | No | — | NeGD partner credential. Unset → the DigiLocker flow runs as a labelled demonstration. |
-| `DIGILOCKER_CLIENT_SECRET` | No | — | As above. Server-only; never reaches the browser. |
-| `ELEVENLABS_API_KEY` | No | — | Text to speech. Unset → the browser's own SpeechSynthesis. |
-
-> **Why not port 5000.** Recent macOS runs the AirPlay Receiver on port 5000 and it
-> answers every request with a 403. A dev proxy pointed at 5000 therefore looks like
-> it is reaching an API when it is reaching Apple's service — which is exactly how the
-> document scanner appeared to work while silently failing. The API defaults to 5050.
-
-### Running
-
-Both processes are needed: the client serves the app, the API serves `/api/*`.
-
-```bash
-npm run dev                # client and server concurrently
-```
-
-Client at `http://localhost:5173`, API at `http://localhost:5050`.
-
-To check the API is actually up (and not Apple's service answering for it):
-
-```bash
-curl http://localhost:5050/api/health
-```
-
-## Project structure
-
-```
-cloud-forge-hackathon/
-├── client/
-│   ├── public/data/        # sharded scheme corpus — central.json + 36 state files
-│   ├── src/components/     # SahayakMode, onboarding, scheme feed, application timeline
-│   ├── src/data/           # strings.js — all Tamil and English copy
-│   ├── src/hooks/          # useEligibility, useVault, useTTS, useLanguage
-│   └── src/utils/          # eligibilityEngine.js — faceted matching and money breakdown
-└── server/
-    ├── routes/             # extractDocument, intentExtraction, schemeSummarizer, tts
-    └── scraper/            # Playwright harvester + normaliser for the corpus
-```
+**Demo reset.** The app resumes into the dashboard whenever a vault exists on the
+device, which is right for a citizen and wrong for a walkthrough. Open **`/?demo`** to
+clear it and start on the landing page; the URL rewrites itself back to `/`.
 
 ## What is built and what is designed
 
-This is a hackathon MVP and the boundary should be explicit.
-
 | Area | Status |
 |---|---|
-| Faceted eligibility engine, scheme matching, near-miss surfacing | Built |
-| Honest money breakdown — five kinds, each explained, never summed, never invented | Built |
-| Adaptive onboarding across all 36 states and UTs | Built |
-| Cross-scheme chaining over precomputed relationships | Built |
-| All-India corpus, sharded by state, harvested from a live source | Built |
-| Sahayak Mode — PIN issue, scoped session, expiry, audit log | Built, with demo PINs rather than production authentication |
-| Bilingual interface and text to speech | Built |
+| Faceted eligibility engine, on-device matching, match provenance | Built |
+| Honest money breakdown — kinds never summed, amounts never invented | Built |
+| Cross-scheme chaining | Built |
+| All-India corpus, sharded by state | Built |
+| 13 languages, second language derived from state | Built |
+| Sahayak Mode — PIN, scoped session, expiry, audit log | Built, with demo PINs rather than production authentication |
+| DigiLocker and Aadhaar / PAN / DL QR document capture | Built |
 | Identity vault with on-device encryption | Built |
-| Web client and conversational onboarding | Built |
-| SMS, WhatsApp and Telegram adapters | Designed, not implemented |
-| Document capture for applications | Mocked |
-| Submission to government portals | Mocked — no official API integration exists |
-
-Multi-channel reach is central to the concept and the first thing a real deployment
-would need. It is specified here, not shipped.
-
-## Two defects found and fixed while recapturing
-
-Both were invisible in code review and only showed up by driving the running app.
-
-**The components were written against design tokens that were never defined.**
-`bg-canvas`, `bg-surface`, `text-muted`, `text-q`, `u-meta`, `u-display`,
-`btn-primary`, `surface-plate`, `border-hairline`, `rounded-well` and roughly a dozen
-more appear throughout the components but existed in neither `tailwind.config.js` nor
-`index.css`. The two files had drifted apart: the components use the vocabulary in
-`DESIGN.md`, while `index.css` shipped the later `Sevai.dc.html` naming (`page`,
-`white`, the ink ramp, `rule-*`). Tailwind emits nothing for an unknown utility and
-reports no error, so this failed in total silence.
-
-`Landing` and the result screen barely use the missing names and always looked
-correct, which is what kept it hidden. `SahayakMode` uses fifteen of them: its
-`bg-canvas` full-screen overlay computed to `rgba(0,0,0,0)`, so it rendered
-transparently over the page behind it — on the feature this README calls the one the
-design turns on. The fix defines the missing names against the **shipped** values
-rather than reintroducing `DESIGN.md`'s palette, so the app keeps one visual language
-instead of two near-miss greys.
-
-**The seeded demo application pointed at a scheme ID that no longer exists.** The
-Applications screen seeds one rejected record so the timeline and the resubmit path
-can be shown. It referenced `pmay-gramin`; the v2 corpus keys that scheme `pmay-g`, so
-it resolved to "Scheme details unavailable" on the one screen built to demonstrate the
-timeline.
+| SMS, WhatsApp and Telegram adapters | Built in a separate repository against this engine |
+| Submission to government portals | Not attempted — no official API exists. Every application links out to the department's own site |
 
 ## Limitations
 
-- The corpus is a snapshot harvested on 7 Aug 2026, not a live feed. No official API
-  exists to consume, so it goes stale between harvests.
-- Published amounts are taken as written. Where a scheme publishes a departmental
-  outlay rather than a per-beneficiary figure, the cash line inherits that number, and
-  a maximally-qualifying profile can produce an implausibly large annual total. The
-  breakdown is honest about *kind*; it is only as accurate about *magnitude* as the
-  source text.
-- Sahayak PINs are demonstration values. Production needs real cryptographic session
-  issue and server-side revocation.
+- The corpus is a periodic snapshot, not a live feed. No official API exists to
+  consume, so it goes stale between harvests.
+- Sahayak PINs are demonstration values. Production needs cryptographic session issue
+  and server-side revocation.
 - Eligibility facets are derived from published scheme text and do not survive a
   scheme's terms changing.
-- Scheme titles and body text remain English. Only the interface chrome is translated.
-  A genuinely Tamil-first experience needs the corpus translated too.
-- Speech quality depends on an ElevenLabs key. The browser fallback reads Tamil poorly
-  on desktop, acceptably on Android and iOS Chrome.
+- Scheme titles and body text come from the corpus in English. Only the interface is
+  translated; a genuinely multilingual experience needs the corpus translated too.
+- Published amounts are taken as written. Where a scheme publishes a departmental
+  outlay rather than a per-beneficiary figure, that is what the card shows.
 - No accessibility audit has been carried out with the intended user population.
 
 ## Impact & scalability
 
 **Who it reaches.** The design target is a household that owns a feature phone, reads
-little, speaks Tamil, and is entitled to money it has never heard of. Every
-architectural decision — on-device matching, state-sharded corpus, speech on every
-screen, delegated sessions — follows from that user rather than from a smartphone
-owner with a data plan.
+little, speaks a language other than English, and is entitled to money it has never
+heard of. Every architectural decision — on-device matching, a state-sharded corpus, a
+state-derived second language, delegated sessions, SMS as a first-class transport —
+follows from that user rather than from a smartphone owner with a data plan.
 
 **Why it scales technically.** Matching runs on the device, so per-user server cost is
 zero and the backend is a stateless proxy. The corpus is sharded by state, so a citizen
-downloads central + their own state regardless of how large the national corpus grows.
+downloads central plus their own regardless of how large the national corpus grows.
 Serving is a CDN problem, not a compute problem.
 
-**Why it scales operationally.** Extending to a new state is a districts list and a
-strings file, not an engine change — the corpus already carries all 36 states and UTs.
-And Sahayak Mode maps directly onto delivery networks that already exist: Common
+**Why it scales operationally.** Extending to a new state is a data shard and a
+language mapping, not an engine change — all 36 states and union territories are
+already carried. Sahayak Mode maps onto delivery networks that already exist: Common
 Service Centre operators, village-level entrepreneurs, and self-help group
 facilitators, all of whom already fill these forms informally.
 
-**What would have to be true for real deployment.** A live ingestion agreement with
-department publications, an SMS gateway, cryptographic session issue, and field
-validation of the delegation model with village-level workers. These are named in the
-roadmap rather than claimed as done.
+## Repository layout
 
-## Roadmap
-
-- SMS adapter against a real gateway — the highest-value channel and the largest gap
-- Corpus ingestion from department publications rather than a periodic scrape
-- Cryptographic session issue for Sahayak Mode with server-side revocation
-- Per-beneficiary amount extraction, so a departmental outlay is never read as a
-  personal entitlement
-- Corpus translation, so scheme text is Tamil rather than only the chrome
-- Field testing with village-level workers to validate the delegation model
-
-## Provenance
-
-Sevai began as **Sevai-Scout**, an open-source project by the same team
-([varadharajanv0310/Sevai-TN](https://github.com/varadharajanv0310/Sevai-TN)), and this
-repository carries that full commit history. The work is disclosed rather than
-reintroduced as new: the prior build established the eligibility engine, the Tamil and
-speech layer, the identity vault and Sahayak Mode; this submission reframes the system
-for financial inclusion and carries the v2 corpus and matcher.
+```
+client/          React app — engine, vault, every screen
+  public/data/   sharded corpus: central.json + 36 state files
+  src/data/      languages.js — which language sits beside English, and why
+  src/utils/     eligibilityEngine.js, documentQr.js, digilocker.js
+server/          Express proxy — Claude, TTS, DigiLocker, Sahayak, document extraction
+  scraper/       Python + Playwright harvester and normaliser
+docs/film/       pipeline that builds the demo film from the running app
+```
 
 ## Team
 
-**V Varadharajan** (lead), **Abishek VPT**, **L Prashanth**, **Mridah Shivakumar**.
+**V Varadharajan** · **Abishek VPT** · **L Prashanth** · **Mridah Shivakumar**

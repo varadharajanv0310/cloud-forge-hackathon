@@ -79,18 +79,6 @@ input, select, textarea { font: inherit; color: inherit; }
 .hide-scrollbar::-webkit-scrollbar { display: none; }
 .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
-/* ── Language companions ────────────────────────────────────────────────────
-   Much of the UI renders an English line and a Tamil line together, with the
-   Tamil companion marked `lang="ta"`. That pairing was unconditional, so the
-   Tamil showed even with the interface set to English — the toggle moved the
-   chrome but never the companions, which is not how a language switch is
-   expected to behave.
-
-   useLanguage stamps the choice on <html>, so one rule retires the companions
-   in English and leaves Tamil mode exactly as it was. Nothing is deleted: set
-   the language back to Tamil and every line returns. */
-html[lang='en-IN'] [lang='ta'] { display: none; }
-
 /* ── Bloom drift ──────────────────────────────────────────────────────────── */
 @keyframes svDrift {
   0%   { transform: translate3d(0, 0, 0) scale(1); }
@@ -274,28 +262,6 @@ html[lang='en-IN'] [lang='ta'] { display: none; }
 
      Each one is expressed in terms of the shipped system rather than given
      fresh values, so there is exactly one visual language here, not two.    */
-
-  /* Type roles */
-  .u-meta {
-    font-family: 'IBM Plex Mono', ui-monospace, monospace;
-    text-transform: uppercase;
-    letter-spacing: .12em;
-    font-size: 12px;
-    line-height: 1.45;
-    color: var(--ink-45);
-  }
-  [lang='ta'] .u-meta, .u-meta[lang='ta'] {
-    text-transform: none;
-    letter-spacing: .02em;
-    font-family: 'Noto Sans Tamil', sans-serif;
-  }
-  /* Size always arrives alongside it (`u-display text-[26px]`), so this
-     supplies weight and tracking only — never a font-size. */
-  .u-display { font-weight: 700; letter-spacing: -.035em; line-height: 1.06; text-wrap: balance; }
-  .u-scheme-name {
-    font-size: 17px; line-height: 1.35; font-weight: 600; letter-spacing: -.015em;
-    text-wrap: balance; overflow-wrap: break-word; hyphens: none;
-  }
 
   /* Surfaces */
   .surface-plate { background: var(--white); border: 1px solid var(--rule-14); border-radius: 6px; }
