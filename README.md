@@ -174,57 +174,55 @@ what was searched for, not who searched.
 
 ## Screenshots
 
-> **These captures predate the v2 rewrite and do not represent the current build.**
-> The landing page has since been redesigned, the summed annual figure in the feed
-> capture was deliberately removed, and the two headline statistics on the old landing
-> page — "₹4Cr+ claimed" and "12k farmers served" — were invented and have been
-> replaced with live counts from the corpus. They are kept here only until fresh
-> captures are taken; read them as history, not as the product.
+Captured from the running build against one profile — a smallholder farmer in Tamil
+Nadu: SC, priority ration card, owns under an acre, no cattle.
 
-### Conversational onboarding
+### Landing
 
-![Conversational onboarding](docs/screenshots/onboarding.png)
+![Landing](docs/screenshots/hero.png)
 
-The profile is collected as a chat, one question at a time, with tappable answers.
+The claim the product has to earn, and the three constraints it accepts: free, no
+account, nothing leaves the device.
+
+### Adaptive onboarding
+
+![Onboarding](docs/screenshots/onboarding.png)
+
+One question at a time, in large type, with tappable answers. It opens at seven and
+branches only where an answer opens something that matters.
+
+### The result — money, separated by kind
+
+![Result](docs/screenshots/result.png)
+
+The screen the whole project exists for. 253 schemes matched; the money below is split
+into cash, insurance cover, subsidy, in-kind and credit, each carrying the sentence
+that makes it readable, and the totals are never added together. 77 further schemes
+matched but publish no amount, and are counted as such rather than guessed at.
 
 ### Matched scheme feed
 
 ![Scheme feed](docs/screenshots/feed-ta.png)
 
-The result for a farmer in Thanjavur. The citizen searched for nothing — the engine
-evaluated the profile against every scheme they could claim. The single ₹1.0 Cr annual
-figure shown here is exactly what v2 removed; see
-[Honest money](#honest-money--the-design-decision-that-matters-most-here).
+The citizen searched for nothing — the engine evaluated their profile against all 901
+schemes they could claim and sorted what came back.
 
 ### Live language switching
 
 ![English feed](docs/screenshots/feed-en.png)
 
-The same screen after tapping the EN pill. Interface copy, headings and navigation
-switch in place. Scheme titles come from the corpus and remain English — see
-[Limitations](#limitations).
+The same screen in English. Interface copy, headings and navigation switch in place.
+Scheme titles come from the corpus and remain English — see [Limitations](#limitations).
 
-### Sahayak Mode — delegated access
+### Sahayak Mode and application tracking
 
-![Sahayak PIN entry](docs/screenshots/sahayak-mode.png)
-
-A helper enters the citizen's PIN to open a scoped, time-bounded session. The demo PIN
-is printed on screen because this is a hackathon build; production would issue it
-cryptographically.
-
-### Delegated session, scoped to one beneficiary
-
-![Beneficiary code entry](docs/screenshots/sahayak-session.png)
-
-Inside a Sahayak session the helper loads exactly one beneficiary by code. Every action
-is written to an audit log the citizen can review, and the session expires on its own.
-
-### Application tracking
-
-![Applications](docs/screenshots/applications.png)
-
-Submitted applications carry a status timeline. Where an application is rejected the
-timeline shows the remediation path rather than a dead end.
+Not captured. Both screens render against design tokens that are referenced throughout
+the components but never defined in `tailwind.config.js` or `index.css` — `bg-canvas`,
+`surface-plate`, `btn-primary`, `u-meta` and roughly fifteen others. The markup and
+logic are correct; the styling silently resolves to nothing, which is most visible on
+`SahayakMode`, whose full-screen overlay renders transparently over the page behind it.
+Captures are held back until that is fixed rather than shipped misleading. See
+[Known defects](#known-defects).
 
 ## Architecture
 
@@ -335,6 +333,32 @@ This is a hackathon MVP and the boundary should be explicit.
 
 Multi-channel reach is central to the concept and the first thing a real deployment
 would need. It is specified here, not shipped.
+
+## Known defects
+
+Found while recapturing screenshots against the running build. Both are open.
+
+**The design tokens the components are written against are not defined.** Roughly
+nineteen classes — `bg-canvas`, `bg-surface`, `bg-surface-sub`, `text-muted`,
+`text-lead`, `text-q`, `text-scheme`, `u-meta`, `u-display`, `u-scheme-name`,
+`btn-primary`, `btn-secondary`, `btn-ghost`, `surface-tray`, `surface-plate`,
+`border-hairline`, `ring-hairline`, `amber-banner`, `rounded-well` — are used across
+almost every component but exist in neither `tailwind.config.js` nor `index.css`.
+Tailwind emits nothing for an unknown utility and reports no error, so the pages that
+lean hardest on them degrade silently. `Landing` and the result screen are unaffected
+and render as designed; `SahayakMode`, `Applications`, `Profile` and `SchemeDetail`
+are visibly degraded. The sharpest symptom is that `bg-canvas` — the background on
+three full-screen overlays, including Sahayak Mode — computes to `rgba(0,0,0,0)`, so
+those overlays are transparent and the page behind shows through. `BottomNav` is
+transparent for the same reason, which is why feed content runs under the navigation
+bar. The colour exists in the config under a different name (`page`), so the smallest
+correct fix is to define the missing tokens rather than to rename usages.
+
+**The seeded demo application points at a scheme that no longer exists.** The
+Applications screen ships one pre-seeded record referencing `pmay-gramin`, an ID from
+the v1 Tamil Nadu corpus. The v2 all-India corpus is keyed differently, so the record
+resolves to "Scheme details unavailable" and the status timeline renders against a
+missing scheme.
 
 ## Limitations
 
