@@ -39,7 +39,7 @@ router.post('/extract-intent', upload.single('audio'), async (req, res) => {
   if (field === 'profile') {
     const userPrompt = `Language: ${language}\nUser spoke: "${maybeText || '(transcript unavailable)'}"\n${audioHint}\n\nExtract all profile fields mentioned. Return JSON only.`;
     try {
-      const raw = await completeText({ system: PROFILE_SYSTEM_PROMPT, user: userPrompt, max_tokens: 300 });
+      const raw = await completeText({ system: PROFILE_SYSTEM_PROMPT, user: userPrompt, max_tokens: 2000 });
       const start = raw.indexOf('{'); const end = raw.lastIndexOf('}');
       const json = JSON.parse(raw.slice(start, end + 1));
       return res.json({ field: 'profile', fields: json.fields || {}, transcript: json.transcript || maybeText, source: 'claude' });
@@ -53,7 +53,7 @@ router.post('/extract-intent', upload.single('audio'), async (req, res) => {
   const userPrompt = `Language: ${language}\nField being asked: ${field}\nQuestion to user: ${question}\nUser's spoken transcript (if any): ${maybeText || '(transcript unavailable — pick a reasonable default for this field if you cannot tell)'}\n${audioHint}\n\nReturn JSON only.`;
 
   try {
-    const raw = await completeText({ system: SYSTEM_PROMPT, user: userPrompt, max_tokens: 200 });
+    const raw = await completeText({ system: SYSTEM_PROMPT, user: userPrompt, max_tokens: 2000 });
     const firstBrace = raw.indexOf('{');
     const lastBrace = raw.lastIndexOf('}');
     const json = JSON.parse(raw.slice(firstBrace, lastBrace + 1));

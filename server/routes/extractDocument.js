@@ -5,7 +5,7 @@
  * Falls back to a deterministic mock when no ANTHROPIC_API_KEY is set.
  */
 import { Router } from 'express';
-import { getClaude, MODEL } from '../middleware/claudeClient.js';
+import { getClaude, MODEL, EFFORT } from '../middleware/claudeClient.js';
 
 const router = Router();
 
@@ -49,8 +49,8 @@ router.post('/extract-document', async (req, res) => {
   try {
     const resp = await claude.messages.create({
       model: MODEL,
-      max_tokens: 500,
-      temperature: 0,
+      max_tokens: 2000,
+      output_config: { effort: EFFORT },
       system: SYSTEM_PROMPT,
       messages: [
         {

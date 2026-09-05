@@ -21,7 +21,7 @@ const BATCH_SIZE = 5;
 const BATCH_DELAY = 600;
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const MODEL = 'claude-sonnet-4-20250514';
+const MODEL = 'claude-opus-5';
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
@@ -87,8 +87,8 @@ Return the JSON object only.`;
 
   const resp = await client.messages.create({
     model: MODEL,
-    max_tokens: 1000,
-    temperature: 0.2,
+    max_tokens: 4000,
+    output_config: { effort: 'low' },
     system: SYSTEM_PROMPT,
     messages: [{ role: 'user', content: userMsg }],
   });

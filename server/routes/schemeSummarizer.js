@@ -43,8 +43,7 @@ router.post('/summarize-scheme', async (req, res) => {
     const text = await completeText({
       system: systemPromptFor(language),
       user: `Scheme:\n${schemeLine}\n\nReturn 3 bullet points only.`,
-      max_tokens: 300,
-      temperature: 0.4,
+      max_tokens: 2000,
     });
     const lines = text
       .split(/\n+/)
