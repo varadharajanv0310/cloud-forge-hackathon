@@ -108,11 +108,19 @@ input, select, textarea { font: inherit; color: inherit; }
     font-family: 'Noto Sans Tamil', sans-serif;
   }
 
-  /* Display sizes. Tracking is tight and negative, as in the source. */
-  .h-hero  { font-size: clamp(46px, 6.4vw, 92px); line-height: .95;  font-weight: 700; letter-spacing: -.045em; text-wrap: balance; }
-  .h-1     { font-size: 40px; line-height: 1.06; font-weight: 700; letter-spacing: -.035em; }
-  .h-2     { font-size: 34px; line-height: 1.1;  font-weight: 700; letter-spacing: -.035em; }
-  .h-3     { font-size: 22px; line-height: 1.25; font-weight: 600; letter-spacing: -.02em; }
+  /* Display sizes. Tracking is tight and negative, as in the source.
+     Named d-* rather than h-*: Tailwind ships h-1 / h-2 / h-3 as HEIGHT
+     utilities (4px / 8px / 12px). Those set a different property, so both
+     rules applied at once — the heading kept its font-size and was also
+     clamped to 4px tall, and whatever followed it in the flow overlapped it.
+     Utilities outrank components in the cascade, so this could not be fixed
+     by editing the declaration; the names had to stop colliding. h-1/h-2/h-3
+     are used as real heights elsewhere (dots, spacers, progress bars) and
+     still work. */
+  .d-hero  { font-size: clamp(46px, 6.4vw, 92px); line-height: .95;  font-weight: 700; letter-spacing: -.045em; text-wrap: balance; }
+  .d-1     { font-size: 40px; line-height: 1.06; font-weight: 700; letter-spacing: -.035em; }
+  .d-2     { font-size: 34px; line-height: 1.1;  font-weight: 700; letter-spacing: -.035em; }
+  .d-3     { font-size: 22px; line-height: 1.25; font-weight: 600; letter-spacing: -.02em; }
   .figure  { font-size: 54px; line-height: 1;    font-weight: 700; letter-spacing: -.04em; }
   .figure-sm { font-size: 36px; line-height: 1.05; font-weight: 800; letter-spacing: -.042em; }
 
