@@ -2,10 +2,10 @@ import { createContext, useContext, useEffect, useState, useCallback } from 'rea
 import React from 'react';
 
 const LANG_KEY = 'sevai_lang';
-const LanguageCtx = createContext({ lang: 'ta', setLang: () => {} });
+const LanguageCtx = createContext({ lang: 'en', setLang: () => {} });
 
 export const LanguageProvider = ({ children }) => {
-  const [lang, setLangState] = useState(() => localStorage.getItem(LANG_KEY) || 'ta');
+  const [lang, setLangState] = useState(() => localStorage.getItem(LANG_KEY) || 'en');
 
   const setLang = useCallback((l) => {
     setLangState(l);

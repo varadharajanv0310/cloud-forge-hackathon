@@ -79,6 +79,18 @@ input, select, textarea { font: inherit; color: inherit; }
 .hide-scrollbar::-webkit-scrollbar { display: none; }
 .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
+/* ── Language companions ────────────────────────────────────────────────────
+   Much of the UI renders an English line and a Tamil line together, with the
+   Tamil companion marked `lang="ta"`. That pairing was unconditional, so the
+   Tamil showed even with the interface set to English — the toggle moved the
+   chrome but never the companions, which is not how a language switch is
+   expected to behave.
+
+   useLanguage stamps the choice on <html>, so one rule retires the companions
+   in English and leaves Tamil mode exactly as it was. Nothing is deleted: set
+   the language back to Tamil and every line returns. */
+html[lang='en-IN'] [lang='ta'] { display: none; }
+
 /* ── Bloom drift ──────────────────────────────────────────────────────────── */
 @keyframes svDrift {
   0%   { transform: translate3d(0, 0, 0) scale(1); }
