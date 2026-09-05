@@ -99,14 +99,16 @@ export default function Thread({ chips = [], lang = 'en', max = 0, className = '
   return (
     <div className={`flex flex-wrap items-center gap-1.5 ${className}`} lang={lang}>
       {hidden > 0 && (
-        <span className="chip text-muted" aria-label={`${hidden} earlier answers`}>
+        <span className="chip text-ink-30 tabular" aria-label={`${hidden} earlier answers`}>
           +{hidden}
         </span>
       )}
+      {/* A match chip is the citizen's own answer quoted back at them, so it
+          carries the violet highlighter the design reserves for "this is you". */}
       {shown.map((c, i) => (
         <span
           key={`${c.key}-${i}`}
-          className={`chip ${tone === 'match' ? 'bg-surface-sub' : ''}`}
+          className={`chip ${tone === 'match' ? 'chip-mark' : ''}`}
           lang={lang}
         >
           {c.label}
@@ -116,15 +118,23 @@ export default function Thread({ chips = [], lang = 'en', max = 0, className = '
   );
 }
 
-/** Why a scheme matched, shown on the artefact itself. */
-export function MatchReason({ scheme, profile, lang = 'en', className = '' }) {
+/**
+ * Why a scheme matched, shown on the artefact itself.
+ *
+ * `showLabel={false}` is for callers that already print their own eyebrow —
+ * the featured card sets "Why this matched you" in both languages above the
+ * chips, and a second copy underneath it would read as a mistake.
+ */
+export function MatchReason({ scheme, profile, lang = 'en', className = '', showLabel = true }) {
   const chips = matchChips(scheme, profile, lang);
   if (!chips.length) return null;
   return (
     <div className={className}>
-      <div className="u-meta mb-1.5" lang={lang}>
-        {lang === 'ta' ? 'ஏன் பொருந்தியது' : 'Why this matched you'}
-      </div>
+      {showLabel && (
+        <div className="mono text-[9.5px] tracking-[.12em] text-ink-55 mb-1.5" lang={lang}>
+          {lang === 'ta' ? 'ஏன் பொருந்தியது' : 'Why this matched you'}
+        </div>
+      )}
       <Thread chips={chips} lang={lang} tone="match" />
     </div>
   );

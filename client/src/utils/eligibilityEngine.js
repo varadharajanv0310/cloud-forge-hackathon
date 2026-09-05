@@ -102,8 +102,26 @@ export function hardFilter(scheme, profile) {
   }
 
   // Education — 1,139 schemes, previously separated by a single bit.
-  if (Array.isArray(e.student_levels) && e.student_levels.length > 0 && profile.student_level) {
-    if (!e.student_levels.includes(profile.student_level)) return false;
+  const levels = Array.isArray(e.student_levels) ? e.student_levels : [];
+  if (levels.length > 0 && profile.student_level) {
+    if (!levels.includes(profile.student_level)) return false;
+  }
+  /**
+   * A scheme that names the study levels it is for is a scheme for students,
+   * whatever `student_required` happens to say — myScheme leaves that flag
+   * false on plenty of them. Without this, every PhD and post-doctoral
+   * fellowship in the corpus matched a 45-year-old farmer, and because several
+   * are ALSO mis-tagged `occupation: ["farmer"]` (their prose says "Agricultural
+   * Sciences", and the occupation extractor reads that as farming) they were
+   * scored as targeted matches and drove the headline to Rs 30 lakh a year.
+   *
+   * This is not the "unanswered field" case the rule above protects. The
+   * citizen answered: they said what they do, and it is not studying, so
+   * `student_level` was never asked. That is a positive contradiction.
+   */
+  if (levels.length > 0 && !profile.student_level
+      && profile.occupation && profile.occupation !== 'student') {
+    return false;
   }
   if (e.marks_min_pct != null && profile.last_exam_pct != null) {
     if (profile.last_exam_pct < e.marks_min_pct) return false;
@@ -358,15 +376,22 @@ export const FOCUS_N = 5;
 
 function emptyTotals() {
   return {
+    // The headline. Every one of these is scoped to `focusSchemes` — the same
+    // handful of schemes, so the panel's own label is true of every row in it.
     focusCount: 0,
     focusCashAnnual: 0,
     focusCashOneTime: 0,
     focusSchemes: [],
-    cashAnnual: 0,
-    cashOneTime: 0,
     loanCeiling: 0,
     subsidyTotal: 0,
     insuranceCover: 0,
+    // The whole catalogue, for anything that wants context rather than a
+    // headline. Never label these as something the citizen can claim.
+    corpusCashAnnual: 0,
+    corpusCashOneTime: 0,
+    corpusLoanCeiling: 0,
+    corpusSubsidy: 0,
+    corpusInsurance: 0,
     valuedCount: 0,
     unvaluedCount: 0,
     matchedCount: 0,
@@ -430,33 +455,58 @@ export function computeTotals(schemes, profile) {
       // 'unknown' frequency is treated as one-time: claiming that an unqualified
       // figure recurs every year is the overstatement v2 exists to remove.
       if (b.cash_frequency === 'annual' || b.cash_frequency === 'monthly') {
-        t.cashAnnual += b.cash;
+        t.corpusCashAnnual += b.cash;
       } else {
-        t.cashOneTime += b.cash;
+        t.corpusCashOneTime += b.cash;
       }
       valued = true;
     }
-    if (b.loan_ceiling) { t.loanCeiling += b.loan_ceiling; valued = true; }
-    if (b.subsidy) { t.subsidyTotal += b.subsidy; valued = true; }
-    if (b.insurance_cover) { t.insuranceCover += b.insurance_cover; valued = true; }
+    if (b.loan_ceiling) { t.corpusLoanCeiling += b.loan_ceiling; valued = true; }
+    if (b.subsidy) { t.corpusSubsidy += b.subsidy; valued = true; }
+    if (b.insurance_cover) { t.corpusInsurance += b.insurance_cover; valued = true; }
 
     if (valued) t.valuedCount += 1;
     else t.unvaluedCount += 1;
   }
 
-  // The headline: the strongest matches *by fit*, taken in the order the caller
-  // already ranked them, so the figure agrees with the cards at the top of the
-  // feed. Ranking this by raw amount instead surfaced National Science Chair
-  // and the Ramanujan Fellowship for a daily-wage labourer — schemes that match
-  // only because myScheme records no eligibility restrictions on them, and that
-  // no such citizen will ever receive.
-  const focus = list.filter((s) => (s.benefit || {}).cash).slice(0, FOCUS_N);
+  /* ── the headline ──────────────────────────────────────────────────────────
+     Two rules, both learned the hard way.
+
+     1. TARGETED ONLY. Ranking by raw amount once surfaced the Ramanujan
+        Fellowship for a daily-wage labourer. Ranking by fit instead was not
+        enough: for a 45-year-old farmer the five strongest were still all
+        research fellowships — IARI, WISE-SCOPE, INSPIRE, Maulana Azad and the
+        Ramalingaswami Re-Entry Fellowship — totalling Rs 30.8 lakh a year.
+        They win because they declare NO eligibility at all, so nothing rules
+        anyone out, and 13% of the corpus is like that. A scheme that matched
+        for no nameable reason cannot carry a rupee figure into the headline:
+        the product promises the citizen can always see WHY something matched,
+        and for these there is nothing to show.
+
+     2. ONE SCOPE FOR ALL KINDS. Cash used to be limited to the focus set while
+        subsidy, insurance and credit were summed across every match. The panel
+        is captioned "from your N strongest matches", so three of its four rows
+        were captioned with a claim that was not true of them. Every kind is
+        now computed over exactly the same schemes.                            */
+  const isValued = (s) => {
+    const b = s.benefit || {};
+    return Boolean(b.cash || b.loan_ceiling || b.subsidy || b.insurance_cover);
+  };
+  const focus = list
+    .filter((s) => isValued(s) && (!profile || isTargeted(s, profile)))
+    .slice(0, FOCUS_N);
 
   t.focusSchemes = focus;
   t.focusCount = focus.length;
   for (const s of focus) {
-    if (isRecurring(s)) t.focusCashAnnual += s.benefit.cash;
-    else t.focusCashOneTime += s.benefit.cash;
+    const b = s.benefit || {};
+    if (b.cash) {
+      if (isRecurring(s)) t.focusCashAnnual += b.cash;
+      else t.focusCashOneTime += b.cash;
+    }
+    if (b.loan_ceiling) t.loanCeiling += b.loan_ceiling;
+    if (b.subsidy) t.subsidyTotal += b.subsidy;
+    if (b.insurance_cover) t.insuranceCover += b.insurance_cover;
   }
 
   return t;
@@ -532,4 +582,4 @@ export const evaluateAll = (profile, allSchemes) => {
 
 /** @deprecated v1 summed a single per-scheme number. Use computeTotals(). */
 export const totalBenefitValue = (entries) =>
-  computeTotals((entries || []).map((e) => e.scheme).filter(Boolean)).cashAnnual;
+  computeTotals((entries || []).map((e) => e.scheme).filter(Boolean)).corpusCashAnnual;

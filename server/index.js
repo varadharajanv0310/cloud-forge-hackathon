@@ -5,19 +5,33 @@ import intentExtraction from './routes/intentExtraction.js';
 import schemeSummarizer from './routes/schemeSummarizer.js';
 import tts from './routes/tts.js';
 import extractDocument from './routes/extractDocument.js';
+import digilocker from './routes/digilocker.js';
+import sahayak from './routes/sahayak.js';
 import { getClaude, MODEL } from './middleware/claudeClient.js';
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+// 5000 is taken by macOS ControlCenter (the AirPlay Receiver) on every recent
+// macOS. It answers requests with a 403, so the Vite proxy appeared to be
+// reaching an API — every /api call went to Apple's service instead, and the
+// document scanner's extraction silently failed. 5050 is out of that way.
+const PORT = process.env.PORT || 5050;
 
-app.use(cors());
-app.use(express.json({ limit: '2mb' }));
+// credentials:true so the DigiLocker session cookie survives the XHR round
+// trip. A wildcard origin cannot carry cookies, so the client origin is named.
+app.use(cors({ origin: process.env.CLIENT_ORIGIN || 'http://localhost:5173', credentials: true }));
+// Must sit ABOVE the 5MB base64 ceiling that extractDocument enforces, or the
+// body parser rejects a large photo first — with its own generic 413 and no
+// bilingual "retake or compress" message. The route's guard is the one that
+// should fire, because it is the one that can explain itself.
+app.use(express.json({ limit: '8mb' }));
 
 // Mount all routes under /api
 app.use('/api', intentExtraction);
 app.use('/api', schemeSummarizer);
 app.use('/api', tts);
 app.use('/api', extractDocument);
+app.use('/api', digilocker);
+app.use('/api', sahayak);
 
 // Health check — useful for demo day ("is Claude wired up?")
 app.get('/api/health', (_, res) => {

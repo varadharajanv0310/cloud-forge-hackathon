@@ -4,32 +4,44 @@ import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { useSchemes, getSchemeById } from '../utils/schemesStore.js';
 import { useVault } from '../hooks/useVault.js';
 import { useLanguage } from '../hooks/useLanguage.js';
-import { t } from '../data/strings.js';
 import { QUESTIONS } from '../data/profileSchema.js';
 import { MatchReason } from '../components/Thread.jsx';
-import { formatBenefit, benefitToneClass } from '../utils/formatters.js';
+import { formatBenefit } from '../utils/formatters.js';
 import { addApplication } from '../utils/applications.js';
 import { appendAudit } from '../utils/sahayakMock.js';
 import SuccessAnimation from '../components/SuccessAnimation.jsx';
 import CrossSchemeChain from '../components/CrossSchemeChain.jsx';
 import DocumentScanner from '../components/DocumentScanner.jsx';
+import { StateLoading } from '../components/AsyncStates.jsx';
 import { speakImperative } from '../hooks/useTTS.js';
 import { verifyDocument } from '../utils/documentVerifier.js';
+import { ID_LABELS, maskId } from '../utils/idDocuments.js';
 import { useVoiceTranscript } from '../hooks/useVoiceTranscript.js';
 import { createRecorder } from '../utils/speechUtils.js';
 
 /**
- * Apply — gather what the citizen needs before they leave for the government
- * portal, and keep a record on the device that they went.
+ * Apply — ported from the Claude Design source (Sevai.dc.html, isWApply).
  *
- * v2 changes that matter here:
- *   • the scheme is looked up from the sharded store, so the page has a
- *     not-yet-loaded state and renders a calm shape rather than a spinner;
+ * The design's whole argument is in the first line of copy: *this is a
+ * checklist, not an application*. So the page is laid out as a document with a
+ * standing right-hand rail — profile, papers, camera on the left; the readiness
+ * count and the single outbound link on the right — rather than as a form with
+ * a Submit at the bottom. Sevai never posts anything to a government; the
+ * citizen leaves for the department's own site and does it themselves.
+ *
+ * Two things carried over from v2 and one taken away:
+ *   • the scheme is looked up from the sharded store, so there is a loading
+ *     shape rather than a spinner;
  *   • `vault.district` is gone — the citizen's scope is `vault.state`;
- *   • the document checklist is built from `scheme.documents_required`, which
- *     is real but published for only ~19% of the corpus. When it is empty the
- *     screen says so; it does not manufacture a plausible list, because a
- *     citizen would act on it.
+ *   • the review table used to print the citizen's community in plain text.
+ *     It no longer does, and there is no reveal control either: this is a
+ *     shared phone, and an affordance that can expose caste over someone's
+ *     shoulder is a worse defect than the missing row. The screen says the
+ *     answer was used and is being withheld, which is the true statement.
+ *
+ * The document checklist is built from `scheme.documents_required`, published
+ * for only ~19% of the corpus. Where it is empty the screen says so; it does
+ * not manufacture a plausible list, because a citizen would act on it.
  */
 
 // ── data plumbing ───────────────────────────────────────────────────────────
@@ -50,10 +62,90 @@ function answerLabel(key, value, lang) {
   return String(value);
 }
 
+// Answers that are used for matching and never drawn on the glass.
+const WITHHELD = [
+  ['caste', 'Community', 'சமூகம்'],
+  ['marital_status', 'Marital status', 'திருமண நிலை'],
+  ['disability', 'Disability', 'மாற்றுத்திறன்'],
+  ['maternity', 'Maternity', 'தாய்மை'],
+];
+
 // Only these keys are ever written back from voice extraction. The endpoint can
 // return anything; the vault schema is the authority, not the response.
 const VOICE_KEYS = new Set(['name', 'age', 'occupation', 'annual_income', 'state']);
 const NUMERIC_KEYS = new Set(['age', 'annual_income']);
+
+// ── reading a scan against the checklist line ───────────────────────────────
+/**
+ * A checklist line is myScheme's prose, not an enum: 'Aadhaar Card', 'Aadhar',
+ * 'PAN Card', 'Driving License/Licence' and 'Aadhaar Card / Voter ID' all occur
+ * in the corpus. So the line is read for every ID type it would accept and the
+ * whole set is kept — a line naming two documents must not reject the second.
+ *
+ * The word boundaries are load-bearing, not decoration. Unanchored `pan` claims
+ * 'Panchayat Certificate' and unanchored `ration` claims 'Self Declaration',
+ * which occurs 30 times in the corpus — either one would stand between a
+ * citizen and a line they are entitled to tick.
+ */
+const DOC_LINE_PATTERNS = [
+  ['aadhaar',         /a+dh?a+r/],            // aadhaar, aadhar, adhaar, aadaar
+  ['pan',             /\bpan\b/],
+  ['driving_licence', /driv|\bdl\b/],
+  ['voter_id',        /voter|epic|election/],
+  ['ration_card',     /\bration\b/],
+];
+
+function acceptedIdTypes(docLine) {
+  const s = String(docLine || '').toLowerCase();
+  return DOC_LINE_PATTERNS.filter(([, re]) => re.test(s)).map(([type]) => type);
+}
+
+const labelList = (types, key, join) => types.map((t) => ID_LABELS[t][key]).join(join);
+
+// The three types idDocuments.js can actually check a number against. Anywhere
+// else a failed validation means "no rule exists", not "the number is wrong",
+// and the screen must not say otherwise.
+const NUMBER_VERIFIABLE = new Set(['aadhaar', 'pan', 'driving_licence']);
+
+/**
+ * The contract promises a strict YYYY-MM-DD, but this is model output on its
+ * way to a citizen's age on a government form, so it is parsed rather than
+ * trusted: a rolled-over date (2001-02-30) or an impossible age is discarded
+ * instead of quietly becoming an answer.
+ */
+function ageFromDob(dob) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dob || ''));
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const born = new Date(y, mo - 1, d);
+  if (born.getFullYear() !== y || born.getMonth() !== mo - 1 || born.getDate() !== d) return null;
+  const now = new Date();
+  let age = now.getFullYear() - y;
+  if (now.getMonth() < mo - 1 || (now.getMonth() === mo - 1 && now.getDate() < d)) age -= 1;
+  return age >= 0 && age <= 120 ? age : null;
+}
+
+// Cash is the only kind that takes full ink; a loan is set in mono in a dashed
+// box further down, where it is typographically incapable of reading as cash.
+const TONE_INK = {
+  cash: 'text-ink',
+  subsidy: 'text-ink-80',
+  loan: 'text-ink-45',
+  insurance: 'text-ink-45',
+  inkind: 'text-ink-45',
+  unknown: 'text-ink-40',
+};
+
+const hostOf = (url) => {
+  try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return null; }
+};
+
+// ── small type helpers ──────────────────────────────────────────────────────
+const Eyebrow = ({ children, className = '' }) => (
+  <div className={`mono text-[10.5px] tracking-[.13em] text-ink-55 ${className}`}>{children}</div>
+);
 
 // ── Typewriter ──────────────────────────────────────────────────────────────
 function TypewriterText({ text, speed = 150 }) {
@@ -76,7 +168,7 @@ function TypewriterText({ text, speed = 150 }) {
     <span>
       {displayed}
       {displayed.length < String(text || '').length && (
-        <span className="animate-pulse opacity-50" aria-hidden="true">|</span>
+        <span className="animate-svPulse opacity-50" aria-hidden="true">|</span>
       )}
     </span>
   );
@@ -139,24 +231,125 @@ export default function Apply() {
     }
   };
 
-  const handleDocExtracted = useCallback((data) => {
+  /**
+   * A scan result is a claim about a paper the citizen will carry to a counter,
+   * so nothing here ticks a box on the strength of the camera having fired.
+   * Three things must hold before a row goes green: the read succeeded, the
+   * document was legible, and it is the document that line actually asks for.
+   * Anything else leaves the row unticked and says why — a wrongly ticked box
+   * is discovered at the office with the queue behind them, which is the exact
+   * failure this page exists to prevent.
+   *
+   * The second argument is the captured image. It is deliberately not taken:
+   * the panel above promises the photograph is never stored, and the cheapest
+   * way to keep that promise is to never hold a reference to it.
+   */
+  const handleDocExtracted = useCallback((result) => {
     const docName = activeScannerDoc;
     setActiveScannerDoc(null);
     if (!docName) return;
 
-    setDocs((d) => ({ ...d, [docName]: { name: 'scanned.jpg', verified: true } }));
-    setDocErrors((e) => { const next = { ...e }; delete next[docName]; return next; });
+    // A refusal clears any earlier tick rather than sitting silently beside it:
+    // the row renders either 'checked' or the error, never both, so a tick left
+    // standing would swallow the message whole.
+    const refuse = (english, tamil) => {
+      navigator.vibrate?.([200, 100, 200]);
+      speakImperative(ta ? tamil : english, lang);
+      setDocs((d) => { const next = { ...d }; delete next[docName]; return next; });
+      setDocErrors((e) => ({ ...e, [docName]: { english_message: english, tamil_message: tamil } }));
+    };
 
-    if (data && !data.error) {
-      const updates = {};
-      if (data.name && !vault.name) updates.name = data.name;
-      if (data.gender && !vault.gender) {
-        const g = String(data.gender).toLowerCase();
-        if (g === 'male' || g === 'female' || g === 'transgender') updates.gender = g;
-      }
-      if (Object.keys(updates).length > 0) setVault(updates);
+    // The scanner reports an unreadable document rather than throwing, and a
+    // failed request arrives as an empty object. To the citizen both mean the
+    // same thing: we have not seen this paper, so we cannot say that we have.
+    const type = result?.documentType;
+    if (!type || !ID_LABELS[type] || type === 'unreadable') {
+      refuse(
+        'We could not read that. Hold the card flat, in good light, and take it again.',
+        'படிக்க முடியவில்லை. அட்டையை நல்ல வெளிச்சத்தில் நேராக வைத்து மீண்டும் எடுங்கள்.',
+      );
+      return;
     }
-  }, [activeScannerDoc, vault, setVault]);
+
+    // Lines like 'Income Certificate' name no ID type at all, and the reader
+    // has no value for one. An empty set is therefore no claim rather than a
+    // failed one — refusing there would make the camera useless on most of the
+    // corpus, and we would be refusing on a guess.
+    const accepted = acceptedIdTypes(docName);
+    if (accepted.length > 0 && !accepted.includes(type)) {
+      // Both documents get named. 'Wrong document' sends someone back to the
+      // camera holding the same paper.
+      const wantEn = labelList(accepted, 'en', ' or ');
+      const wantTa = labelList(accepted, 'ta', ' அல்லது ');
+      refuse(
+        type === 'other'
+          ? `We could not tell what this document is. This line needs your ${wantEn}.`
+          : `That looks like your ${ID_LABELS[type].en}. This line needs your ${wantEn}.`,
+        type === 'other'
+          ? `இது என்ன ஆவணம் என்று தெரியவில்லை. இங்கு ${wantTa} தேவை.`
+          : `இது ${ID_LABELS[type].ta} போல் தெரிகிறது. இங்கு ${wantTa} தேவை.`,
+      );
+      return;
+    }
+
+    // Only now may the row go green.
+    // An older scanner build sends no `validation` at all; absent is treated as
+    // unverified, never as fine — the number is then read but not believed.
+    const validation = result.validation || { ok: false, normalised: null, reason: null };
+
+    setDocErrors((e) => { const next = { ...e }; delete next[docName]; return next; });
+    setDocs((d) => ({
+      ...d,
+      [docName]: {
+        name: 'scanned.jpg',
+        verified: true,
+        idType: type,
+        // Masked at the moment of capture, so the full number never reaches
+        // component state and cannot be read over a shoulder on a shared phone.
+        masked: validation.ok ? maskId(type, result.idNumber) : null,
+        // Only said where a rule exists to fail. Silence elsewhere is honest:
+        // a ration card has no checksum to disappoint us.
+        numberUnread: NUMBER_VERIFIABLE.has(type) && !!result.idNumber && !validation.ok,
+      },
+    }));
+    speakImperative(
+      ta ? `${ID_LABELS[type].ta} சரிபார்க்கப்பட்டது` : `${ID_LABELS[type].en} checked`,
+      lang,
+    );
+
+    // In Sahayak mode the vault on screen is the beneficiary's session copy,
+    // while `setVault` writes the helper's own encrypted vault on this device.
+    // Filling it here would move one citizen's name, age and Aadhaar digits
+    // into another person's phone, so assisted scans fill nothing.
+    if (isSahayak) return;
+
+    // Their own answer always wins — a scan is evidence, never a correction.
+    // Written through the functional form so each field is compared against the
+    // vault as it stands at write time, not as it stood when this callback was
+    // created.
+    setVault((prev) => {
+      const next = { ...prev };
+      if (result.name && !prev.name) next.name = result.name;
+      if (!prev.gender) {
+        const g = String(result.gender || '').toLowerCase();
+        if (g === 'male' || g === 'female' || g === 'transgender') next.gender = g;
+      }
+      // There is no date of birth in the vault, and adding one would be a new
+      // piece of identity to leak; the year count is what the schemes gate on.
+      if (prev.age == null || prev.age === '') {
+        const derived = ageFromDob(result.dob);
+        if (derived != null) next.age = derived;
+      }
+      // Four digits and never the number: enough to recognise which card the
+      // form wants, useless to whoever picks the phone up next. Same field and
+      // shape the Profile page already writes.
+      if (type === 'aadhaar' && validation.ok && !prev.aadhaar_last4) {
+        const last4 = String(validation.normalised || '').replace(/\D/g, '').slice(-4);
+        if (last4.length === 4) next.aadhaar_last4 = last4;
+      }
+      return next;
+    });
+  }, [activeScannerDoc, isSahayak, lang, ta, setVault]);
 
   // ── Voice fill ────────────────────────────────────────────────────────────
   const startVoiceFill = async () => {
@@ -215,7 +408,7 @@ export default function Apply() {
     }
   };
 
-  // ── Submit ────────────────────────────────────────────────────────────────
+  // ── Record that the citizen went ──────────────────────────────────────────
   const handleSubmit = () => {
     if (submitting || !scheme) return;
     setSubmitting(true);
@@ -235,20 +428,11 @@ export default function Apply() {
 
   const onSuccessDone = () => { setShowSuccess(false); setShowRelated(true); };
 
-  const shell = (children, bloom = 'bloom-neutral') => (
-    <div className="min-h-[100dvh] w-full bg-canvas relative overflow-x-hidden pb-28">
-      <div className={`bloom ${bloom} bloom-quiet`} aria-hidden="true" />
-      <div className="relative z-10 mx-auto w-full max-w-[820px] px-4 sm:px-6 py-4 sm:py-6">
-        <header className="flex items-center justify-between mb-4 sm:mb-6">
-          <button onClick={() => nav(-1)} className="btn-ghost compact text-[15px]" lang={lang}>
-            <span aria-hidden="true">←</span> {ta ? 'பின்' : 'Back'}
-          </button>
-          <span className="u-meta" lang={lang}>
-            {isSahayak
-              ? ta ? 'உதவியாளர் முறை' : 'Sahayak mode'
-              : ta ? 'உங்கள் விவரத்திலிருந்து' : 'From your profile'}
-          </span>
-        </header>
+  // ── page frame ────────────────────────────────────────────────────────────
+  const shell = (children) => (
+    <div className="relative min-h-[100dvh] bg-page overflow-x-hidden">
+      <div className="bloom bloom-header" aria-hidden="true" />
+      <div className="relative mx-auto w-full max-w-[1120px] px-5 sm:px-9 lg:px-11 pt-8 pb-16">
         {children}
       </div>
     </div>
@@ -257,33 +441,26 @@ export default function Apply() {
   // ── not-yet-loaded ────────────────────────────────────────────────────────
   if (!scheme && loading) {
     return shell(
-      <div className="card" aria-busy="true">
-        <div className="u-meta" lang={lang}>
-          {ta ? 'திட்டம் ஏற்றப்படுகிறது' : 'Loading this scheme'}
-        </div>
-        <div className="mt-5 space-y-3 animate-pulse" aria-hidden="true">
-          <div className="h-6 w-4/5 rounded-full bg-surface-sub" />
-          <div className="h-6 w-2/5 rounded-full bg-surface-sub" />
-          <div className="h-20 w-full rounded-well bg-surface-sub mt-6" />
-        </div>
-      </div>,
-      'bloom-cool',
+      <StateLoading stateName={vault?.state || ownVault?.state} cards={2} />,
     );
   }
 
   if (!scheme) {
     return shell(
-      <div className="card">
-        <h1 className="u-display text-q text-ink" lang={lang}>
-          {ta ? 'இந்தத் திட்டம் கிடைக்கவில்லை' : 'We could not find this scheme'}
-        </h1>
-        <p className="mt-3 text-[16px] text-muted max-w-[52ch]" lang={lang}>
-          {ta
-            ? 'இணைப்பு பழையதாக இருக்கலாம், அல்லது இத்திட்டம் உங்கள் மாநிலத்திற்கானது அல்ல.'
-            : 'The link may be out of date, or this scheme may not be offered in your state.'}
+      <div className="max-w-[640px] pt-6">
+        <h1 className="title-2 m-0">We could not find this scheme</h1>
+        <div className="ta text-[17px] text-ink-60 mt-2.5" lang="ta">இந்தத் திட்டம் கிடைக்கவில்லை</div>
+        <p className="mt-4 mb-0 text-[16px] leading-[1.65] text-ink-90 max-w-[56ch]">
+          The link may be out of date, or this scheme may not be offered in your state.
         </p>
-        <button onClick={() => nav('/feed')} className="btn-primary mt-6" lang={lang}>
-          {ta ? 'என் திட்டங்களுக்குத் திரும்பு' : 'Back to my schemes'}
+        <div className="ta text-[14px] text-ink-45 mt-2" lang="ta">
+          இணைப்பு பழையதாக இருக்கலாம், அல்லது இத்திட்டம் உங்கள் மாநிலத்திற்கானது அல்ல.
+        </div>
+        <button
+          onClick={() => nav('/feed')}
+          className="mt-6 min-h-[54px] px-6 bg-ink text-white rounded-[4px] text-[15.5px] font-semibold hover:opacity-90 transition-opacity"
+        >
+          Back to my schemes <span className="ta font-normal opacity-70" lang="ta">· என் திட்டங்கள்</span>
         </button>
       </div>,
     );
@@ -292,307 +469,460 @@ export default function Apply() {
   // ── derived ───────────────────────────────────────────────────────────────
   const name = ta && scheme.name_ta ? scheme.name_ta : scheme.name_plain;
   const required = scheme.documents_required || [];
-  const allDocsDone = required.every((d) => docs[d]);
+  const doneCount = required.filter((d) => docs[d]).length;
+  const allDocsDone = required.length > 0 && doneCount === required.length;
   const b = scheme.benefit || {};
   const money = formatBenefit(b, lang);
   const outbound = scheme.official_url || scheme.application_link;
+  const host = hostOf(outbound) || 'myscheme.gov.in';
 
   // vault.district is gone in v2 — the citizen's scope is their state.
+  // Community, marital status, disability and maternity are deliberately absent.
   const fields = [
-    { key: 'name',          label: ta ? 'பெயர்' : 'Name',
+    { key: 'name',          en: 'Name',           taLabel: 'பெயர்',
       value: liveFields.name ?? (vault.name || null) },
-    { key: 'age',           label: ta ? 'வயது' : 'Age',
+    { key: 'age',           en: 'Age',            taLabel: 'வயது',
       value: liveFields.age ?? (vault.age != null ? String(vault.age) : null) },
-    { key: 'gender',        label: ta ? 'பாலினம்' : 'Gender',
+    { key: 'gender',        en: 'Gender',         taLabel: 'பாலினம்',
       value: answerLabel('gender', vault.gender, lang) },
-    { key: 'state',         label: ta ? 'மாநிலம்' : 'State',
+    { key: 'state',         en: 'State',          taLabel: 'மாநிலம்',
       value: liveFields.state ?? answerLabel('state', vault.state, lang) },
-    { key: 'occupation',    label: ta ? 'வேலை' : 'Occupation',
+    { key: 'occupation',    en: 'Occupation',     taLabel: 'வேலை',
       value: liveFields.occupation ?? answerLabel('occupation', vault.occupation, lang) },
-    { key: 'ration_card',   label: ta ? 'குடும்ப அட்டை' : 'Ration card',
+    { key: 'ration_card',   en: 'Ration card',    taLabel: 'குடும்ப அட்டை',
       value: answerLabel('ration_card', vault.ration_card, lang) },
-    { key: 'caste',         label: ta ? 'சமூகம்' : 'Community',
-      value: answerLabel('caste', vault.caste, lang) },
-    { key: 'annual_income', label: ta ? 'ஆண்டு வருமானம்' : 'Annual income',
+    { key: 'annual_income', en: 'Annual income',  taLabel: 'ஆண்டு வருமானம்',
       value: liveFields.annual_income
         ?? (vault.annual_income ? `₹${Number(vault.annual_income).toLocaleString('en-IN')}` : null) },
   ];
 
+  const withheld = WITHHELD.filter(([k]) => vault[k] !== undefined && vault[k] !== null && vault[k] !== '');
+
+  /**
+   * Entrance. Deliberately translate-only: an entrance must never gate whether
+   * content is VISIBLE on whether an animation completes. Framer Motion drives
+   * these on requestAnimationFrame, and rAF is suspended whenever the renderer
+   * treats the surface as non-visible — which left this whole page stacked at
+   * `opacity: 0` with a working DOM underneath. Same rule as `.enter` in
+   * index.css: move it, never fade it.
+   */
   const rise = (d = 0) => ({
-    initial: reduce ? false : { opacity: 0, y: 14 },
-    animate: { opacity: 1, y: 0 },
+    initial: reduce ? false : { y: 12 },
+    animate: { y: 0 },
     transition: { duration: 0.32, delay: d, ease: [0.22, 1, 0.36, 1] },
   });
 
   return shell(
-    <div className="space-y-4">
-      {/* ── which scheme, and why it is yours ─────────────────────────────── */}
-      <motion.div {...rise(0)} className="surface-tray">
-        <div className="surface-plate relative overflow-hidden px-6 sm:px-9 py-7 sm:py-9">
-          <div className="bloom bloom-warm bloom-quiet" aria-hidden="true" />
-          <div className="relative z-10">
-            <div className="u-meta" lang={lang}>
-              {ta ? 'இதற்கு விண்ணப்பிக்கிறீர்கள்' : 'You are applying for'}
-            </div>
-            <h1
-              className="u-scheme-name mt-3 text-[24px] sm:text-[28px] leading-[1.35] font-semibold text-ink max-w-[24ch]"
-              lang={lang}
-            >
-              {name}
-            </h1>
+    <>
+      {/* ── back ─────────────────────────────────────────────────────────── */}
+      <button
+        onClick={() => nav(-1)}
+        className="mono inline-flex items-center gap-2.5 text-[10.5px] tracking-[.12em] text-ink-55 hover:text-ink transition-colors mb-6"
+      >
+        <span aria-hidden="true">←</span>
+        <span className="truncate max-w-[46ch]">Back to {scheme.name_plain}</span>
+      </button>
 
-            {/* Kinds keep their own grammar here too. Cash alone gets display. */}
+      {/* ── title ────────────────────────────────────────────────────────── */}
+      <motion.div {...rise(0)}>
+        <h1 className="m-0 text-[30px] sm:text-[36px] font-bold tracking-[-.036em] leading-[1.12]">
+          Get ready to apply
+        </h1>
+        <div className="ta text-[17px] sm:text-[19px] text-ink-60 mt-2.5" lang="ta">
+          விண்ணப்பிக்க தயாராகுங்கள்
+        </div>
+        <p className="mt-4 mb-0 text-[15.5px] sm:text-[16px] leading-[1.6] text-ink-90 max-w-[74ch]">
+          This is a checklist, not an application. When everything is ready you will be sent to{' '}
+          {host} to apply there yourself.
+        </p>
+        <div className="ta text-[14px] text-ink-45 mt-2 max-w-[58ch]" lang="ta">
+          இது ஒரு சரிபார்ப்புப் பட்டியல் — விண்ணப்பம் அல்ல. தயாரானதும் நீங்களே அரசு தளத்தில் விண்ணப்பிக்க
+          அனுப்பப்படுவீர்கள்.
+        </div>
+      </motion.div>
+
+      <div className="grid gap-9 lg:gap-10 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] items-start mt-9">
+        {/* ═══ left column ═══════════════════════════════════════════════ */}
+        <div className="min-w-0">
+          {/* ── which scheme, and why it is yours ──────────────────────── */}
+          <motion.section {...rise(0.03)} className="panel p-5 sm:p-6">
+            <Eyebrow>You are applying for</Eyebrow>
+            <h2 className="scheme-name text-[19px] sm:text-[21px] mt-3 mb-0 max-w-[34ch]" lang={lang}>
+              {name}
+            </h2>
+
+            {/* Kinds keep their own grammar. Cash alone gets the display face. */}
             {b.cash ? (
-              <div className="mt-5">
-                <div className="u-display tabular text-[32px] leading-none text-ink">{money.primary}</div>
-                <div className="u-meta mt-1.5" lang={lang}>{money.secondary}</div>
+              <div className="mt-4">
+                <div className="figure-sm tabular text-ink">{money.primary}</div>
+                <div className="mono text-[10px] tracking-[.12em] text-ink-55 mt-1.5">{money.secondary}</div>
               </div>
             ) : (
-              <div className={`mt-4 text-[15px] ${benefitToneClass(money.tone)}`} lang={lang}>
+              <div className={`mt-3.5 text-[15px] ${TONE_INK[money.tone] || 'text-ink'}`}>
                 <span className="font-medium">{money.primary}</span>
-                <span className="text-muted"> · {money.secondary}</span>
+                <span className="text-ink-40"> · {money.secondary}</span>
               </div>
             )}
 
-            {b.cash && b.loan_ceiling > 0 && (
-              <div className="well mt-3 px-4 py-3 flex flex-wrap items-baseline justify-between gap-3">
-                <span className="text-[13px] text-muted" lang={lang}>
-                  <span aria-hidden="true">↩ </span>
-                  {ta ? 'கடன் வசதி — திருப்பிச் செலுத்த வேண்டும்' : 'credit available — to be repaid'}
+            {/* Credit is mono, inside a dashed box. It cannot read as cash. */}
+            {b.cash > 0 && b.loan_ceiling > 0 && (
+              <div className="mt-3.5 border border-dashed border-rule-22 rounded-[4px] px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+                <span className="mono text-[9.5px] tracking-[.12em] text-ink-45">
+                  Credit available — to be repaid
                 </span>
-                <span className="tabular text-[14px] font-medium text-muted shrink-0">
+                <span className="mono tabular text-[14px] tracking-[.04em] text-ink-45 flex-none">
                   {formatBenefit({ loan_ceiling: b.loan_ceiling }, lang).primary}
                 </span>
               </div>
             )}
 
-            {vault && <MatchReason scheme={scheme} profile={vault} lang={lang} className="mt-6" />}
-          </div>
-        </div>
-      </motion.div>
+            {vault && <MatchReason scheme={scheme} profile={vault} lang={lang} className="mt-5" />}
+          </motion.section>
 
-      {/* ── voice fill ───────────────────────────────────────────────────── */}
-      <motion.section {...rise(0.05)} className="card">
-        <div className="u-meta" lang={lang}>{t('apply_review_title', lang)}</div>
-
-        <div className="mt-4">
-          <button
-            onClick={voiceFillActive ? stopVoiceFill : startVoiceFill}
-            disabled={voiceFillTranscribing}
-            className={voiceFillActive ? 'btn-primary compact !py-3' : 'btn-secondary compact !py-3'}
-            lang={lang}
-          >
-            {voiceFillTranscribing
-              ? (ta ? 'கேட்டதைப் பதிவு செய்கிறோம்…' : 'Working through what you said…')
-              : voiceFillActive
-              ? (ta ? 'நிறுத்தி நிரப்பு' : 'Stop and fill')
-              : (ta ? 'குரலால் நிரப்பு' : 'Fill this by speaking')}
-          </button>
-        </div>
-
-        <AnimatePresence>
-          {voiceFillActive && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="well mt-3 px-4 py-3 flex items-center gap-2.5"
-            >
-              <span className="w-2 h-2 rounded-full bg-ink animate-pulse shrink-0" aria-hidden="true" />
-              <span className="text-[15px] text-ink-2" lang={lang}>
-                {voiceTx.transcript || (ta ? 'பேசுங்கள்…' : 'Speak now…')}
-              </span>
-            </motion.div>
-          )}
-          {voiceHeard && !voiceFillActive && !voiceFillTranscribing && (
-            <motion.div
-              initial={{ opacity: 0, y: -6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              className="well mt-3 px-4 py-3"
-            >
-              <div className="u-meta" lang={lang}>{ta ? 'கேட்டது' : 'What we heard'}</div>
-              <div className="mt-1 text-[15px] text-ink-2" lang={lang}>{voiceHeard}</div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* ── review ─────────────────────────────────────────────────────── */}
-        <dl className="mt-5 grid sm:grid-cols-2 gap-x-8">
-          {fields.map((f) => (
-            <div
-              key={f.key}
-              className={`py-3 border-t border-hairline transition-colors duration-320 ease-composed ${
-                flash.has(f.key) ? 'bg-surface-sub' : ''
-              }`}
-            >
-              <dt className="u-meta" lang={lang}>{f.label}</dt>
-              <dd className="mt-1 text-[16px] leading-[1.5] text-ink break-words" lang={lang}>
-                {f.value == null
-                  ? <span className="text-muted">{ta ? 'சொல்லப்படவில்லை' : 'not given'}</span>
-                  : (f.key in liveFields)
-                  ? <TypewriterText text={String(f.value)} speed={150} />
-                  : String(f.value)}
-              </dd>
+          {/* ── the profile this will use ──────────────────────────────── */}
+          <motion.section {...rise(0.06)} className="mt-8">
+            <div className="flex items-end justify-between gap-4 flex-wrap mb-3">
+              <Eyebrow>The profile this will use</Eyebrow>
+              <button
+                onClick={voiceFillActive ? stopVoiceFill : startVoiceFill}
+                disabled={voiceFillTranscribing}
+                className="mono text-[10px] tracking-[.11em] text-ink-55 border border-rule-20 rounded-[3px] px-2.5 py-1.5 hover:border-ink hover:text-ink transition-colors disabled:opacity-50"
+              >
+                {voiceFillTranscribing ? 'Working through it…' : voiceFillActive ? 'Stop and fill' : 'Fill by speaking'}
+              </button>
             </div>
-          ))}
-        </dl>
 
-        <p className="mt-4 text-[13px] text-muted" lang={lang}>{t('device_only', lang)}</p>
-      </motion.section>
+            {/* Plain conditionals, not AnimatePresence. These two panels ARE
+                the feedback that the microphone is working; a fade that stalls
+                would hide them, and a stalled `exit` would strand them on
+                screen forever. `.enter` moves them in without touching
+                opacity, so they are readable whether or not it runs. */}
+            {voiceFillActive && (
+              <div className="enter panel-flat px-4 py-3 mb-2.5 flex items-center gap-2.5">
+                <span className="w-2 h-2 rounded-full bg-ink animate-svPulse flex-none" aria-hidden="true" />
+                <span className="text-[15px] text-ink-80" lang={lang}>
+                  {voiceTx.transcript || (ta ? 'பேசுங்கள்…' : 'Speak now…')}
+                </span>
+              </div>
+            )}
+            {voiceHeard && !voiceFillActive && !voiceFillTranscribing && (
+              <div className="enter panel-flat px-4 py-3 mb-2.5">
+                <Eyebrow>What we heard</Eyebrow>
+                <div className="mt-1 text-[15px] text-ink-80" lang={lang}>{voiceHeard}</div>
+              </div>
+            )}
 
-      {/* ── documents ────────────────────────────────────────────────────── */}
-      <motion.section {...rise(0.09)} className="card">
-        <div className="u-meta" lang={lang}>{t('apply_document_title', lang)}</div>
+            {/* Hairline-separated rows, not a card per field. */}
+            <dl className="m-0 flex flex-col gap-px bg-rule-12 border border-rule-14 rounded-[6px] overflow-hidden">
+              {fields.map((f) => (
+                <div
+                  key={f.key}
+                  className={`grid grid-cols-[minmax(90px,180px)_minmax(0,1fr)] gap-4 items-baseline px-4 sm:px-5 py-3.5 transition-colors duration-300 ${
+                    flash.has(f.key) ? 'bg-violet-mark' : 'bg-white'
+                  }`}
+                >
+                  <dt className="min-w-0">
+                    <span className="block text-[13.5px] text-ink-40">{f.en}</span>
+                    <span className="ta block text-[11.5px] text-ink-30" lang="ta">{f.taLabel}</span>
+                  </dt>
+                  <dd className="m-0 text-[15.5px] leading-[1.45] text-ink break-words" lang={lang}>
+                    {f.value == null ? (
+                      <span className="text-ink-25">not given · <span className="ta" lang="ta">சொல்லப்படவில்லை</span></span>
+                    ) : f.key in liveFields ? (
+                      <TypewriterText text={String(f.value)} speed={150} />
+                    ) : (
+                      String(f.value)
+                    )}
+                  </dd>
+                </div>
+              ))}
+            </dl>
 
-        {required.length === 0 ? (
-          // Real but sparse: only ~19% of schemes publish a document list. A
-          // plausible-looking invented list is worse than none, because the
-          // citizen would carry the wrong papers to the office.
-          <p className="mt-3 text-[15px] leading-[1.6] text-muted max-w-[56ch]" lang={lang}>
-            {ta
-              ? 'இத்திட்டம் ஆவணப் பட்டியலை வெளியிடவில்லை. அரசு பக்கத்தில் பார்த்துக் கொள்ளுங்கள் — நாங்கள் ஊகிக்க மாட்டோம்.'
-              : 'This scheme has not published a document list. Check the official page before you go — we will not guess at one.'}
-          </p>
-        ) : (
-          <div className="mt-4 space-y-3">
-            {required.map((d) => {
-              const done = !!docs[d];
-              const err = docErrors[d];
-              return (
-                <div key={d}>
-                  <label
-                    className="option flex items-center gap-4 cursor-pointer"
-                    data-selected={done ? 'true' : 'false'}
+            {/* Used for matching, never drawn. No reveal control — this is a
+                shared phone and the design's own rule outranks the mockup's. */}
+            {withheld.length > 0 && (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                {withheld.map(([k, en, taLabel]) => (
+                  <span
+                    key={k}
+                    className="mono text-[10.5px] tracking-[.1em] text-ink-40 border border-dashed border-rule-22 rounded-full px-3 py-1.5"
                   >
-                    <span
-                      className={`w-9 h-9 rounded-full grid place-items-center text-[15px] shrink-0 ${
-                        done ? 'bg-white/15 text-white' : 'bg-surface-sub text-muted'
-                      }`}
-                      aria-hidden="true"
-                    >
-                      {done ? '✓' : err ? '!' : '＋'}
-                    </span>
-                    <span className="flex-1 min-w-0">
-                      <span className="block text-[16px] font-medium" lang={lang}>{d}</span>
-                      <span className={`block text-[13px] mt-0.5 ${done ? 'text-white/70' : 'text-muted'}`} lang={lang}>
-                        {done
-                          ? (ta ? 'இந்த சாதனத்திலேயே சரிபார்க்கப்பட்டது' : 'checked on this device')
-                          : err
-                          ? (ta ? err.tamil_message : err.english_message)
-                          : t('apply_tap_photo', lang)}
-                      </span>
-                    </span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      onChange={(e) => handleDoc(d, e.target.files?.[0])}
-                      className="hidden"
-                    />
-                  </label>
+                    {en} ·•••
+                    <span className="ta ml-1.5 text-ink-30" lang="ta">{taLabel}</span>
+                  </span>
+                ))}
+              </div>
+            )}
+            <p className="mt-2.5 mb-0 text-[13px] leading-[1.6] text-ink-30 max-w-[62ch]">
+              Community and marital status are used to check schemes but are never shown here, on any
+              screen, or to anyone helping you.
+            </p>
+            <div className="ta text-[12.5px] text-ink-30 mt-1 max-w-[52ch]" lang="ta">
+              சமூகம், திருமண நிலை ஆகியவை திட்டங்களைச் சரிபார்க்கப் பயன்படுகின்றன — திரையில் காட்டப்படாது.
+            </div>
+            <p className="mt-2.5 mb-0 text-[13px] text-ink-30">
+              Stored only on this device.
+              <span className="ta ml-1.5" lang="ta">இந்த சாதனத்தில் மட்டுமே சேமிக்கப்பட்டது</span>
+            </p>
+          </motion.section>
 
-                  {!done && (
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <button
-                        onClick={() => setActiveScannerDoc(d)}
-                        className="btn-ghost compact text-[14px]"
-                        lang={lang}
+          {/* ── documents ──────────────────────────────────────────────── */}
+          <motion.section {...rise(0.09)} className="mt-9">
+            <Eyebrow className="mb-3">Documents you will need</Eyebrow>
+
+            {required.length === 0 ? (
+              // Real but sparse: only ~19% of schemes publish a document list. A
+              // plausible-looking invented list is worse than none, because the
+              // citizen would carry the wrong papers to the office.
+              <div className="border border-dashed border-rule-22 rounded-[5px] px-4 py-4">
+                <p className="m-0 text-[15px] leading-[1.6] text-ink-60 max-w-[60ch]">
+                  This scheme has not published a document list. Check the official page before you go —
+                  we will not guess at one.
+                </p>
+                <div className="ta text-[13px] text-ink-40 mt-1.5 max-w-[52ch]" lang="ta">
+                  இத்திட்டம் ஆவணப் பட்டியலை வெளியிடவில்லை. நாங்கள் ஊகிக்க மாட்டோம்.
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2.5">
+                {required.map((d) => {
+                  const entry = docs[d];
+                  const done = !!entry;
+                  const err = docErrors[d];
+                  // Only a scan knows what the paper was; a photo taken through
+                  // the file picker is still just a tick.
+                  const scanned = entry?.idType ? ID_LABELS[entry.idType] : null;
+                  return (
+                    <div key={d}>
+                      <label
+                        className={`block cursor-pointer border rounded-[4px] bg-white px-4 py-3.5 transition-colors ${
+                          done ? 'border-ink' : err ? 'border-rule-22' : 'border-rule-16 hover:border-ink'
+                        }`}
                       >
-                        {ta ? 'கேமராவால் ஸ்கேன் செய்' : 'Scan with the camera'}
-                      </button>
-                      {err && (
-                        <label className="btn-ghost compact text-[14px] cursor-pointer" lang={lang}>
-                          {ta ? 'மீண்டும் எடு' : 'Retake the photo'}
-                          <input
-                            type="file"
-                            accept="image/*"
-                            capture="environment"
-                            onChange={(e) => handleDoc(d, e.target.files?.[0])}
-                            className="hidden"
-                          />
-                        </label>
+                        <span className="flex items-start gap-3.5">
+                          <span
+                            className={`w-[22px] h-[22px] mt-0.5 flex-none rounded-[3px] border flex items-center justify-center text-[12px] ${
+                              done ? 'bg-ink border-ink text-white' : 'border-rule-22 text-ink-25'
+                            }`}
+                            aria-hidden="true"
+                          >
+                            {done ? '✓' : err ? '!' : ''}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-[15.5px] font-medium tracking-[-.012em] leading-[1.3]">{d}</span>
+                            <span className="block text-[12.5px] text-ink-40 mt-1">
+                              {done
+                                ? scanned
+                                  ? `${scanned.en} · checked on this device`
+                                  : 'checked on this device'
+                                : err
+                                ? err.english_message
+                                : 'Tap to take a photo'}
+                            </span>
+                            <span className="ta block text-[12.5px] text-ink-30 mt-0.5" lang="ta">
+                              {done
+                                ? scanned
+                                  ? `${scanned.ta} · இந்த சாதனத்திலேயே சரிபார்க்கப்பட்டது`
+                                  : 'இந்த சாதனத்திலேயே சரிபார்க்கப்பட்டது'
+                                : err
+                                ? err.tamil_message
+                                : 'புகைப்படம் எடுக்க தட்டுங்கள்'}
+                            </span>
+                            {/* Masked before it ever entered state — the last
+                                four digits are enough for the citizen to know
+                                we read the right card, and are all a shoulder
+                                behind them can take. */}
+                            {done && entry.masked && (
+                              <span className="mono tabular block text-[11px] tracking-[.08em] text-ink-30 mt-1.5">
+                                {entry.masked}
+                              </span>
+                            )}
+                            {done && entry.numberUnread && (
+                              <>
+                                <span className="block text-[12px] text-ink-30 mt-1.5">
+                                  The number did not read cleanly — copy it from the card itself.
+                                </span>
+                                <span className="ta block text-[12px] text-ink-25 mt-0.5" lang="ta">
+                                  எண் சரியாகப் படிக்கவில்லை — அட்டையிலிருந்தே பாருங்கள்.
+                                </span>
+                              </>
+                            )}
+                          </span>
+                          <span
+                            className={`mono text-[9.5px] tracking-[.11em] flex-none px-2 py-1 rounded-[3px] border ${
+                              done ? 'border-ink text-ink' : 'border-rule-16 text-ink-30'
+                            }`}
+                          >
+                            {done ? 'Ready' : 'Needed'}
+                          </span>
+                        </span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          capture="environment"
+                          onChange={(e) => handleDoc(d, e.target.files?.[0])}
+                          className="hidden"
+                        />
+                      </label>
+
+                      {!done && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <button
+                            onClick={() => setActiveScannerDoc(d)}
+                            className="mono text-[10px] tracking-[.11em] text-ink-55 border border-rule-20 rounded-[3px] px-2.5 py-1.5 hover:border-ink hover:text-ink transition-colors"
+                          >
+                            Scan with the camera
+                          </button>
+                          {err && (
+                            <label className="mono cursor-pointer text-[10px] tracking-[.11em] text-ink-55 border border-rule-20 rounded-[3px] px-2.5 py-1.5 hover:border-ink hover:text-ink transition-colors">
+                              Retake the photo
+                              <input
+                                type="file"
+                                accept="image/*"
+                                capture="environment"
+                                onChange={(e) => handleDoc(d, e.target.files?.[0])}
+                                className="hidden"
+                              />
+                            </label>
+                          )}
+                        </div>
                       )}
                     </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </motion.section>
+                  );
+                })}
+              </div>
+            )}
+          </motion.section>
 
-      {/* ── act ──────────────────────────────────────────────────────────── */}
-      <motion.section {...rise(0.12)} className="card">
-        <div className="flex flex-wrap items-center gap-3">
-          <a
-            href={outbound}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn-primary inline-flex items-center"
-            lang={lang}
-          >
-            {scheme.official_url
-              ? ta ? 'அரசு தளத்தில் விண்ணப்பி' : 'Apply on the official site'
-              : ta ? 'திட்டப் பக்கத்தைப் பார்' : 'Open the scheme page'}
-            <span aria-hidden="true"> ↗</span>
-          </a>
-          <button
-            disabled={submitting}
-            onClick={handleSubmit}
-            className="btn-secondary"
-            lang={lang}
-          >
-            {submitting
-              ? (ta ? 'பதிவு செய்கிறோம்…' : 'Saving…')
-              : t('apply_submit', lang)}
-          </button>
+          {/* ── camera ─────────────────────────────────────────────────── */}
+          <motion.section {...rise(0.12)} className="mt-9">
+            <Eyebrow className="mb-3">Or scan a document with your camera</Eyebrow>
+            <div className="panel p-5 grid gap-6 sm:grid-cols-[minmax(0,290px)_minmax(0,1fr)] items-center">
+              <div
+                className="rounded-[5px] border-[1.5px] border-dashed border-[rgba(20,20,26,.28)] flex items-center justify-center text-center p-4"
+                style={{
+                  aspectRatio: '1.6',
+                  background:
+                    'repeating-linear-gradient(135deg,rgba(20,20,26,.035) 0 8px,transparent 8px 16px)',
+                }}
+                aria-hidden="true"
+              >
+                <span className="mono text-[10px] tracking-[.11em] text-ink-30 leading-[1.8]">
+                  Camera view<br />hold the card flat
+                </span>
+              </div>
+              <div>
+                <div className="text-[16.5px] font-semibold tracking-[-.02em]">Scan a document</div>
+                <div className="ta text-[13.5px] text-ink-45 mt-1" lang="ta">
+                  ஆவணத்தை ஸ்கேன் செய்யுங்கள்
+                </div>
+                <p className="mt-3 mb-0 text-[14.5px] leading-[1.6] text-ink-60 max-w-[46ch]">
+                  Sevai reads the name and number to fill the form for you. The photograph is never
+                  stored and the reading happens on this device.
+                </p>
+                <button
+                  onClick={() => setActiveScannerDoc(required[0] || 'Document')}
+                  className="mt-4 min-h-[52px] px-6 bg-ink text-white rounded-[4px] text-[15.5px] font-semibold hover:opacity-90 transition-opacity"
+                >
+                  Open camera <span className="ta font-normal opacity-70" lang="ta">· கேமராவைத் திற</span>
+                </button>
+              </div>
+            </div>
+          </motion.section>
         </div>
 
-        <p className="mt-4 text-[13px] leading-[1.6] text-muted max-w-[62ch]">
-          <span lang="en">
-            You are leaving Sevai for {scheme.official_url ? 'the official government site' : 'myscheme.gov.in'}. Sevai keeps a record on this device; it does not submit anything for you.
-          </span>
-          <br />
-          <span lang="ta">
-            நீங்கள் சேவையிலிருந்து {scheme.official_url ? 'அரசு இணையதளத்திற்கு' : 'myscheme.gov.in தளத்திற்கு'} செல்கிறீர்கள். சேவை இந்த சாதனத்தில் பதிவு மட்டும் வைக்கும்; உங்களுக்காக விண்ணப்பிக்காது.
-          </span>
-        </p>
+        {/* ═══ right rail ════════════════════════════════════════════════ */}
+        <motion.aside {...rise(0.06)} className="lg:sticky lg:top-5 flex flex-col gap-3.5 min-w-0">
+          <div className="panel px-6 py-6">
+            <Eyebrow className="!text-[10px] !tracking-[.12em]">Checklist</Eyebrow>
 
-        {required.length > 0 && !allDocsDone && (
-          <p className="mt-3 text-[13px] text-muted" lang={lang}>
-            {ta
-              ? 'ஆவணப் படங்கள் இல்லாமலும் பதிவு செய்யலாம் — பின்னர் சேர்க்கலாம்.'
-              : 'You can save this without the photos and add them later.'}
-          </p>
-        )}
-      </motion.section>
+            {required.length === 0 ? (
+              <>
+                <div className="text-[19px] font-semibold tracking-[-.02em] mt-2.5 leading-[1.25]">
+                  No document list published
+                </div>
+                <div className="ta text-[13px] text-ink-45 mt-1.5" lang="ta">
+                  ஆவணப் பட்டியல் இல்லை
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="figure-sm tabular mt-2">
+                  {doneCount}<span className="text-ink-25">/{required.length}</span>
+                </div>
+                <div className="text-[14px] leading-[1.6] text-ink-60 mt-1.5">
+                  {allDocsDone
+                    ? 'Everything on the list is ready.'
+                    : `${required.length - doneCount} still to photograph. You can go without them and add them later.`}
+                </div>
+                <div className="ta text-[12.5px] text-ink-40 mt-1" lang="ta">
+                  {allDocsDone ? 'அனைத்தும் தயார்' : 'படம் எடுக்க வேண்டியவை மீதம் உள்ளன'}
+                </div>
+              </>
+            )}
+
+            <div className="h-px bg-rule-12 my-5" />
+
+            <a
+              href={outbound}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="min-h-[56px] flex items-center justify-center text-center bg-ink text-white hover:text-white rounded-[4px] text-[15px] font-semibold px-4 hover:opacity-90 transition-opacity"
+            >
+              Continue to {host} ↗
+            </a>
+
+            <p className="mt-3.5 mb-0 text-[13px] leading-[1.6] text-ink-45">
+              Sevai does not submit this application. You will fill in the government&rsquo;s own form,
+              and the department decides.
+            </p>
+            <div className="ta text-[12.5px] text-ink-30 mt-1.5" lang="ta">
+              சேவை உங்களுக்காக விண்ணப்பிக்காது. அரசுத் துறையே முடிவு செய்யும்.
+            </div>
+          </div>
+
+          {/* Keeping a record on the device is a separate, quieter act. */}
+          <div className="panel-flat px-6 py-5">
+            <Eyebrow className="!text-[10px]">Keep a note of this</Eyebrow>
+            <p className="mt-2.5 mb-0 text-[13.5px] leading-[1.6] text-ink-60">
+              Save a record on this phone that you went, so you can follow it up later.
+            </p>
+            <button
+              disabled={submitting}
+              onClick={handleSubmit}
+              className="mt-3.5 min-h-[48px] w-full px-4 border border-rule-22 rounded-[4px] text-[14.5px] font-medium hover:border-ink transition-colors disabled:opacity-50"
+            >
+              {submitting ? 'Saving…' : 'Save this to my applications'}
+            </button>
+          </div>
+        </motion.aside>
+      </div>
 
       {/* ── scanner ──────────────────────────────────────────────────────── */}
       <AnimatePresence>
         {activeScannerDoc && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 bg-ink/50 flex flex-col justify-end"
             onClick={() => setActiveScannerDoc(null)}
           >
+            {/* `y: 24`, not 120: if the spring never runs — rAF is suspended
+                whenever the renderer treats the surface as non-visible — a
+                sheet parked 120px down is off the bottom of the screen and the
+                scanner is unreachable. At 24 a stall is cosmetic. */}
             <motion.div
-              initial={reduce ? false : { y: 120 }}
+              initial={reduce ? false : { y: 24 }}
               animate={{ y: 0 }}
-              exit={{ y: 120 }}
+              exit={{ y: 24 }}
               transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-surface rounded-t-[28px] p-5 pb-8 max-w-lg mx-auto w-full"
+              className="bg-page rounded-t-[8px] border-t border-rule-16 p-5 pb-8 max-w-lg mx-auto w-full"
             >
-              <div className="w-10 h-1 bg-surface-sub rounded-full mx-auto mb-4" aria-hidden="true" />
-              <div className="u-meta text-center mb-4" lang={lang}>
-                {ta ? 'கேமராவில் காட்டுங்கள்' : 'Hold it up to the camera'}
+              <div className="w-10 h-1 bg-rule-14 rounded-full mx-auto mb-4" aria-hidden="true" />
+              <Eyebrow className="text-center">Hold it up to the camera</Eyebrow>
+              <div className="ta text-center text-[13px] text-ink-40 mt-1" lang="ta">
+                கேமராவில் காட்டுங்கள்
               </div>
-              <div className="u-scheme-name text-center text-[17px] text-ink mb-4" lang={lang}>
-                {activeScannerDoc}
-              </div>
+              <div className="scheme-name text-center text-[17px] text-ink my-4">{activeScannerDoc}</div>
               <DocumentScanner
                 lang={lang}
                 autoOpen
@@ -607,28 +937,21 @@ export default function Apply() {
       {/* ── on-device check ──────────────────────────────────────────────── */}
       <AnimatePresence>
         {showOCR && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-40 bg-canvas/85 grid place-items-center px-6"
-          >
-            <div className="card max-w-sm w-full text-center">
-              <div className="u-meta" lang={lang}>{ta ? 'சரிபார்க்கிறோம்' : 'Checking'}</div>
-              <div className="u-scheme-name mt-2 text-[19px] text-ink" lang={lang}>{showOCR}</div>
-              <div className="mt-4 h-1 bg-surface-sub rounded-full overflow-hidden">
-                <motion.div
-                  initial={{ width: 0 }}
-                  animate={{ width: '100%' }}
-                  transition={{ duration: 1.2, ease: [0.22, 1, 0.36, 1] }}
-                  className="h-full bg-ink"
-                />
+          <div className="fixed inset-0 z-40 bg-page/90 grid place-items-center px-6">
+            <div className="panel max-w-sm w-full text-center px-6 py-6">
+              <Eyebrow>Checking</Eyebrow>
+              <div className="scheme-name mt-2 text-[18px] text-ink">{showOCR}</div>
+              {/* CSS pulse rather than an animated width: a width tween that
+                  never runs leaves a 0px bar, which reads as a stuck app. */}
+              <div className="mt-4 h-[3px] bg-rule-10 rounded-full overflow-hidden">
+                <div className="h-full w-full bg-ink animate-svPulse" />
               </div>
-              <p className="mt-4 text-[13px] text-muted" lang={lang}>
-                {ta ? 'இந்த சாதனத்திலேயே — இணையம் தேவையில்லை' : 'On this device — no internet needed'}
-              </p>
+              <p className="mt-4 mb-0 text-[13px] text-ink-45">On this device — no internet needed</p>
+              <div className="ta text-[12.5px] text-ink-30 mt-1" lang="ta">
+                இந்த சாதனத்திலேயே — இணையம் தேவையில்லை
+              </div>
             </div>
-          </motion.div>
+          </div>
         )}
       </AnimatePresence>
 
@@ -642,31 +965,33 @@ export default function Apply() {
       )}
 
       {showRelated && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
+        <div
           className="fixed inset-0 z-40 bg-ink/40 grid place-items-end"
           onClick={() => nav('/applications')}
         >
           <motion.div
-            initial={reduce ? false : { y: 300 }}
+            initial={reduce ? false : { y: 24 }}
             animate={{ y: 0 }}
             transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
             onClick={(e) => e.stopPropagation()}
-            className="bg-surface rounded-t-[28px] p-6 w-full max-w-lg mx-auto space-y-5"
+            className="bg-page rounded-t-[8px] border-t border-rule-16 p-6 w-full max-w-lg mx-auto"
           >
-            <div className="w-10 h-1 bg-surface-sub rounded-full mx-auto" aria-hidden="true" />
-            <div>
-              <div className="u-meta" lang={lang}>{ta ? 'பதிவு செய்யப்பட்டது' : 'Saved on this device'}</div>
-              <h3 className="u-scheme-name mt-2 text-[21px] font-semibold text-ink" lang={lang}>{name}</h3>
+            <div className="w-10 h-1 bg-rule-14 rounded-full mx-auto mb-5" aria-hidden="true" />
+            <Eyebrow>Saved on this device</Eyebrow>
+            <div className="ta text-[12.5px] text-ink-30 mt-1" lang="ta">இந்த சாதனத்தில் சேமிக்கப்பட்டது</div>
+            <h3 className="scheme-name mt-2.5 text-[20px] text-ink">{name}</h3>
+            <div className="mt-5">
+              <CrossSchemeChain schemeId={scheme.id} vault={vault} lang={lang} variant="single" />
             </div>
-            <CrossSchemeChain schemeId={scheme.id} vault={vault} lang={lang} variant="single" />
-            <button onClick={() => nav('/applications')} className="btn-secondary w-full" lang={lang}>
-              {ta ? 'என் விண்ணப்பங்களைக் காண்' : 'See my applications'}
+            <button
+              onClick={() => nav('/applications')}
+              className="mt-5 min-h-[52px] w-full bg-ink text-white rounded-[4px] text-[15.5px] font-semibold hover:opacity-90 transition-opacity"
+            >
+              See my applications <span className="ta font-normal opacity-70" lang="ta">· என் விண்ணப்பங்கள்</span>
             </button>
           </motion.div>
-        </motion.div>
+        </div>
       )}
-    </div>,
+    </>,
   );
 }

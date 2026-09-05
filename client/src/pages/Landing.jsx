@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { loadManifest } from '../utils/schemesStore.js';
+import LangToggle from '../components/LangToggle.jsx';
 
 /**
  * Landing — ported from the Claude Design source (Sevai.dc.html, isLanding).
@@ -22,10 +23,12 @@ function useCorpusStats() {
     loadManifest()
       .then((m) => {
         if (!m) return;
-        const unique = new Set();
-        (m.states || []).forEach((x) => unique.add(x.slug));
         setS({
-          schemes: (m.central_count || 0) + (m.states || []).reduce((n, x) => n + x.count, 0),
+          // total_schemes is the UNIQUE count. Summing central + the per-state
+          // counts overcounts, because a multi-state scheme is written into
+          // every shard it names — and this is the screen that asks for trust.
+          schemes: m.total_schemes
+            || (m.central_count || 0) + (m.states || []).reduce((n, x) => n + x.count, 0),
           states: (m.states || []).length || FALLBACK.states,
           central: m.central_count || FALLBACK.central,
           refreshed: m.generated_at
@@ -99,25 +102,7 @@ export default function Landing({ onStart, lang, setLang }) {
           </nav>
 
           <div className="flex items-center gap-3.5">
-            <div className="flex rounded-full overflow-hidden border border-rule-16 bg-white/60">
-              <button
-                onClick={() => setLang('en')}
-                className={`mono px-3.5 py-[7px] text-[11.5px] tracking-[.10em] ${
-                  lang === 'en' ? 'bg-ink text-white' : 'text-ink-70'
-                }`}
-              >
-                EN
-              </button>
-              <button
-                onClick={() => setLang('ta')}
-                lang="ta"
-                className={`ta px-3.5 py-[7px] text-[13px] ${
-                  lang === 'ta' ? 'bg-ink text-white' : 'text-ink-70'
-                }`}
-              >
-                தமிழ்
-              </button>
-            </div>
+            <LangToggle className="bg-white/60" />
             <button onClick={onStart} className="btn-quiet hidden sm:block">Open the app</button>
           </div>
         </header>
@@ -128,7 +113,7 @@ export default function Landing({ onStart, lang, setLang }) {
             <div className="mono text-[11.5px] tracking-[.15em] text-ink-55 mb-6 sm:mb-7">
               Free · No account · Nothing leaves your device
             </div>
-            <h1 className="d-hero m-0 max-w-[13ch]">Know what you are owed.</h1>
+            <h1 className="title-hero m-0 max-w-[13ch]">Know what you are owed.</h1>
             <div
               className="ta mt-5 font-medium text-ink-80 max-w-[16ch]"
               lang="ta"
@@ -178,7 +163,7 @@ export default function Landing({ onStart, lang, setLang }) {
         {/* ── how it works ─────────────────────────────────────────────── */}
         <div id="how" className="pt-20 sm:pt-24 pb-6 grid gap-10 lg:gap-16 lg:grid-cols-[0.9fr_2.1fr]">
           <div>
-            <h2 className="d-1 m-0">How it<br />works</h2>
+            <h2 className="title-1 m-0">How it<br />works</h2>
             <div className="ta text-[17px] text-ink-45 mt-3.5" lang="ta">
               இது எப்படி வேலை செய்கிறது
             </div>
@@ -187,7 +172,7 @@ export default function Landing({ onStart, lang, setLang }) {
             {steps.map(([n, en, ta, body]) => (
               <div key={n} className="pt-5 border-t-[1.5px] border-ink">
                 <div className="mono text-[12px] tracking-[.12em] text-ink-55">{n}</div>
-                <div className="d-3 mt-5">{en}</div>
+                <div className="title-3 mt-5">{en}</div>
                 <div className="ta text-[16px] text-ink-65 mt-1.5" lang="ta">{ta}</div>
                 <p className="mt-3.5 mb-0 text-[15.5px] leading-[1.6] text-ink-60">{body}</p>
               </div>

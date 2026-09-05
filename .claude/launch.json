@@ -7,6 +7,13 @@
       "runtimeArgs": ["run", "dev"],
       "rootDir": "client",
       "port": 5173
+    },
+    {
+      "name": "sevai-scout-server",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "rootDir": "server",
+      "port": 5000
     }
   ]
 }

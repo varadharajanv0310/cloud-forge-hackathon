@@ -110,29 +110,57 @@ html[lang='en-IN'] [lang='ta'] { display: none; }
     text-transform: uppercase;
     letter-spacing: 0.12em;
   }
+  /* `.ta` is a historical name — it now means "the second language", whichever
+     that is. The family and leading come from --lang-font / --lang-lh, which
+     LanguageProvider sets from the citizen's state, so every element already
+     carrying this class re-scripts with no edit. Hardcoding Noto Sans Tamil
+     here rendered Devanagari and Bengali as tofu for most of India. */
   .ta {
-    font-family: 'Noto Sans Tamil', Archivo, sans-serif;
-    line-height: 1.5;
+    font-family: var(--lang-font, 'Noto Sans Tamil'), Archivo, sans-serif;
+    line-height: var(--lang-lh, 1.5);
   }
-  [lang='ta'] .mono, .mono[lang='ta'] {
+
+  /* THE GUARD.
+     Every `.ta` string written into this app so far is Tamil — 584 of them,
+     from a build that assumed one regional language. The state->language work
+     makes the FONT follow the citizen, but a font cannot translate: a reader in
+     Bihar would get Tamil words set in Devanagari, which is worse than nothing
+     because it looks like a rendering fault rather than a missing translation.
+
+     So a second-language line is shown only where it is genuinely in the
+     citizen's language. Until a string is translated it is simply absent, and
+     the English above it carries the screen alone. `.ta-ok` opts a string back
+     in once it IS in the right language — the language toggle's own label is
+     the first, since it renders the native name for whichever language that is.
+
+     This is deliberately a subtraction. Showing nothing is honest; showing the
+     wrong script is not. */
+  html[data-secondary]:not([data-secondary='ta']) .ta:not(.ta-ok) { display: none; }
+  /* Indic scripts have no uppercase, so the mono meta face drops its
+     transform and tracking for all of them — not only Tamil. */
+  [lang='ta'] .mono, .mono[lang='ta'],
+  [lang='hi'] .mono, [lang='mr'] .mono, [lang='ne'] .mono,
+  [lang='bn'] .mono, [lang='as'] .mono, [lang='pa'] .mono,
+  [lang='or'] .mono, [lang='gu'] .mono, [lang='te'] .mono,
+  [lang='kn'] .mono, [lang='ml'] .mono, [lang='ur'] .mono {
     text-transform: none;
     letter-spacing: 0.02em;
-    font-family: 'Noto Sans Tamil', sans-serif;
+    font-family: var(--lang-font, 'Noto Sans Tamil'), sans-serif;
   }
 
   /* Display sizes. Tracking is tight and negative, as in the source.
-     Named d-* rather than h-*: Tailwind ships h-1 / h-2 / h-3 as HEIGHT
-     utilities (4px / 8px / 12px). Those set a different property, so both
-     rules applied at once — the heading kept its font-size and was also
-     clamped to 4px tall, and whatever followed it in the flow overlapped it.
-     Utilities outrank components in the cascade, so this could not be fixed
-     by editing the declaration; the names had to stop colliding. h-1/h-2/h-3
-     are used as real heights elsewhere (dots, spacers, progress bars) and
-     still work. */
-  .d-hero  { font-size: clamp(46px, 6.4vw, 92px); line-height: .95;  font-weight: 700; letter-spacing: -.045em; text-wrap: balance; }
-  .d-1     { font-size: 40px; line-height: 1.06; font-weight: 700; letter-spacing: -.035em; }
-  .d-2     { font-size: 34px; line-height: 1.1;  font-weight: 700; letter-spacing: -.035em; }
-  .d-3     { font-size: 22px; line-height: 1.25; font-weight: 600; letter-spacing: -.02em; }
+
+     Named `.title-*`, NOT `.h-1/.h-2/.h-3`: those are Tailwind's own height
+     utilities (4px / 8px / 12px). Tailwind's utilities layer is emitted after
+     this components layer, so the height wins and any heading carrying the
+     class collapses to a sliver — silently, with no error and no warning, and
+     only on the elements that happen to use both. Four separate screens hit
+     this and each worked around it locally before the cause was found. The
+     collision is removed here rather than avoided per-file.               */
+  .title-hero { font-size: clamp(46px, 6.4vw, 92px); line-height: .95;  font-weight: 700; letter-spacing: -.045em; text-wrap: balance; }
+  .title-1    { font-size: 40px; line-height: 1.06; font-weight: 700; letter-spacing: -.035em; }
+  .title-2    { font-size: 34px; line-height: 1.1;  font-weight: 700; letter-spacing: -.035em; }
+  .title-3    { font-size: 22px; line-height: 1.25; font-weight: 600; letter-spacing: -.02em; }
   .figure  { font-size: 54px; line-height: 1;    font-weight: 700; letter-spacing: -.04em; }
   .figure-sm { font-size: 36px; line-height: 1.05; font-weight: 800; letter-spacing: -.042em; }
 
@@ -141,6 +169,40 @@ html[lang='en-IN'] [lang='ta'] { display: none; }
     font-size: 17px; line-height: 1.35; font-weight: 600; letter-spacing: -.015em;
     text-wrap: balance; overflow-wrap: break-word; hyphens: none;
   }
+
+  /* ── v1 compatibility ───────────────────────────────────────────────────
+     The screens on the main path are ported. A handful of secondary
+     components — the document scanner, the deadline strip, Samjhao, the
+     cross-scheme chain — still carry the v1 class names, and those names no
+     longer resolve to anything, so they would render as unstyled text in the
+     middle of a finished design.
+
+     Mapping them onto the new roles here is deliberately one line each: it
+     costs nothing, it means no screen can render half-designed, and when
+     those components are eventually rewritten these three rules simply stop
+     matching anything and can be deleted.
+
+     NOTE: no font-size on `.u-display`. It carried `[lang=ta] { font-size:
+     .92em }` in v1, whose 0,2,0 specificity beat every Tailwind text-* class
+     (0,1,0) and collapsed Tamil headlines to ~15px wherever the two met.   */
+  .u-meta        { font-family: 'IBM Plex Mono', ui-monospace, monospace;
+                   text-transform: uppercase; letter-spacing: .12em;
+                   font-size: 9.5px; color: var(--ink-55); display: block; }
+  [lang='ta'] .u-meta, .u-meta[lang='ta'] {
+                   font-family: var(--lang-font, 'Noto Sans Tamil'), sans-serif;
+                   text-transform: none; letter-spacing: .02em; font-size: 11.5px; }
+  .u-display     { font-weight: 700; letter-spacing: -.035em; line-height: 1.12; }
+  .u-scheme-name { font-size: 17px; line-height: 1.35; font-weight: 600;
+                   letter-spacing: -.015em; text-wrap: balance;
+                   overflow-wrap: break-word; hyphens: none; }
+
+  /* v1 colour utilities, remapped onto the new ink ramp. Same reasoning. */
+  .text-muted      { color: var(--ink-45); }
+  .text-body       { color: var(--ink-90); }
+  .bg-canvas       { background: var(--page); }
+  .bg-surface      { background: var(--white); }
+  .bg-surface-sub  { background: var(--panel); }
+  .bg-muted        { background: var(--panel); }
 
   /* ── Surfaces ───────────────────────────────────────────────────────────
      Small radii on purpose. This reads as a document, not an app.          */
@@ -304,28 +366,23 @@ html[lang='en-IN'] [lang='ta'] { display: none; }
       radial-gradient(46% 100% at 10% 0%, rgba(var(--bloom-peach), .34) 0%, rgba(var(--bloom-peach), .12) 46%, rgba(var(--bloom-peach), 0) 78%),
       radial-gradient(40% 90% at 88% 0%,  rgba(var(--bloom-lav), .30) 0%, rgba(var(--bloom-lav), 0) 74%);
   }
-  /* Bloom variants the components ask for. `bloom-quiet` is a modifier that
-     rides on top of a stop set, not a stop set of its own. */
-  .bloom-neutral {
-    inset: 0;
-    background:
-      radial-gradient(32% 36% at 8% 6%,   rgba(var(--bloom-lav), .26) 0%, rgba(var(--bloom-lav), .10) 46%, rgba(var(--bloom-lav), 0) 76%),
-      radial-gradient(34% 40% at 94% 90%, rgba(var(--bloom-teal), .22) 0%, rgba(var(--bloom-teal), 0) 74%);
-  }
+  /* Warm — the one moment the palette is allowed to celebrate: a submitted
+     application. Peach and pink only; the cool half of the ramp sits out. */
   .bloom-warm {
     inset: 0;
     background:
-      radial-gradient(40% 44% at 12% 8%,  rgba(var(--bloom-peach), .34) 0%, rgba(var(--bloom-peach), .12) 48%, rgba(var(--bloom-peach), 0) 78%),
-      radial-gradient(38% 42% at 88% 88%, rgba(var(--bloom-pink), .28) 0%, rgba(var(--bloom-pink), 0) 76%);
+      radial-gradient(52% 44% at 26% 6%,  rgba(var(--bloom-peach), .52) 0%, rgba(var(--bloom-peach), .22) 42%, rgba(var(--bloom-peach), 0) 76%),
+      radial-gradient(46% 40% at 82% 78%, rgba(var(--bloom-pink), .44) 0%, rgba(var(--bloom-pink), 0) 74%);
   }
-  .bloom-cool {
+  /* Neutral — for screens that must not compete with what is on them. */
+  .bloom-neutral {
     inset: 0;
     background:
-      radial-gradient(38% 42% at 6% 4%,   rgba(var(--bloom-teal), .30) 0%, rgba(var(--bloom-teal), .11) 46%, rgba(var(--bloom-teal), 0) 76%),
-      radial-gradient(36% 44% at 92% 10%, rgba(var(--bloom-lav), .28) 0%, rgba(var(--bloom-lav), 0) 74%);
+      radial-gradient(40% 36% at 12% 2%,  rgba(var(--bloom-lav), .30) 0%, rgba(var(--bloom-lav), 0) 72%),
+      radial-gradient(44% 38% at 90% 10%, rgba(var(--bloom-teal), .24) 0%, rgba(var(--bloom-teal), 0) 74%);
   }
-  .bloom-quiet { opacity: .55; }
-
+  /* Sahayak runs on a helper's phone in a crowded office. Half strength. */
+  .bloom-quiet { opacity: .5; }
   .tabular { font-variant-numeric: tabular-nums; }
 
   /* Entrance that cannot hide content: opacity stays 1, only the translate

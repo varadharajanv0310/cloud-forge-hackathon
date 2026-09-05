@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 
 import { LanguageProvider, useLanguage } from './hooks/useLanguage.js';
 import { useVault } from './hooks/useVault.js';
@@ -8,7 +8,7 @@ import { useSchemes } from './utils/schemesStore.js';
 import Onboarding from './components/Onboarding.jsx';
 import ProcessingSphere from './components/ProcessingSphere.jsx';
 import WowReveal from './components/WowReveal.jsx';
-import BottomNav from './components/BottomNav.jsx';
+import AppShell from './components/AppShell.jsx';
 import Landing from './pages/Landing.jsx';
 import Feed from './pages/Feed.jsx';
 import Applications from './pages/Applications.jsx';
@@ -29,7 +29,6 @@ function Shell() {
   const { lang, setLang } = useLanguage();
   // loading | landing | onboarding | processing | reveal | app
   const [phase, setPhase] = useState('loading');
-  const loc = useLocation();
   const nav = useNavigate();
   const { confirmed, totals } = useEligibility(vault);
   const { schemes } = useSchemes(vault?.state);
@@ -60,8 +59,10 @@ function Shell() {
 
   if (phase === 'loading') {
     return (
-      <div className="h-full grid place-items-center bg-canvas text-muted" lang={lang}>
-        {lang === 'ta' ? 'ஏற்றப்படுகிறது…' : 'Loading…'}
+      <div className="min-h-[100dvh] grid place-items-center bg-page" lang={lang}>
+        <span className="mono text-[11px] tracking-[.14em] text-ink-30">
+          {lang === 'ta' ? 'ஏற்றப்படுகிறது…' : 'Loading…'}
+        </span>
       </div>
     );
   }
@@ -100,22 +101,20 @@ function Shell() {
     );
   }
 
-  const showNav = !['/apply', '/scheme'].some((p) => loc.pathname.startsWith(p));
-
+  // AppShell owns the chrome from here on: the desktop rail and top bar, the
+  // phone's BottomNav, and the decision to drop both on the full-bleed task
+  // screens (/scheme, /apply). Routing stays here.
   return (
-    <div className="h-full flex flex-col bg-canvas">
-      <div className="flex-1 overflow-y-auto">
-        <Routes>
-          <Route path="/" element={<Navigate to="/feed" replace />} />
-          <Route path="/feed" element={<Feed onAlertsChange={setFeedBadge} />} />
-          <Route path="/applications" element={<Applications />} />
-          <Route path="/profile" element={<Profile />} />
-          <Route path="/scheme/:id" element={<SchemeDetail />} />
-          <Route path="/apply/:id" element={<Apply />} />
-          <Route path="*" element={<Navigate to="/feed" replace />} />
-        </Routes>
-      </div>
-      {showNav && <BottomNav lang={lang} feedBadge={feedBadge} />}
-    </div>
+    <AppShell feedBadge={feedBadge}>
+      <Routes>
+        <Route path="/" element={<Navigate to="/feed" replace />} />
+        <Route path="/feed" element={<Feed onAlertsChange={setFeedBadge} />} />
+        <Route path="/applications" element={<Applications />} />
+        <Route path="/profile" element={<Profile />} />
+        <Route path="/scheme/:id" element={<SchemeDetail />} />
+        <Route path="/apply/:id" element={<Apply />} />
+        <Route path="*" element={<Navigate to="/feed" replace />} />
+      </Routes>
+    </AppShell>
   );
 }
