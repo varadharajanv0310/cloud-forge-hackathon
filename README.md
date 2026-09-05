@@ -14,8 +14,6 @@
 **CloudForge Hackathon** · Track 03 — Social Impact & Sustainability
 **PS 14 — Financial Inclusion & Empowerment**
 
-![Sevai](docs/screenshots/hero.png)
-
 ---
 
 ## Why this is a financial inclusion problem
@@ -72,8 +70,13 @@ fallback, because for the target user it is the only client. *(Web is shipped; t
 three messaging adapters are specified, not built — see [What is built and what is
 designed](#what-is-built-and-what-is-designed).)*
 
-**Ask once, match against everything.** The citizen answers seven questions once —
-age, occupation, district, income, caste category, gender — into an on-device vault.
+**Ask once, match against everything.** The citizen answers a short adaptive
+questionnaire once — state, age, gender, community, ration card, occupation — into an
+on-device vault. It opens at seven questions and grows only where an answer opens a
+branch that matters: saying "farming" adds land ownership and acreage, saying
+"expecting a child" adds maternity criteria. A profile that triggers nothing finishes
+in seven; the fullest path runs to thirteen.
+
 The engine then evaluates that profile against every scheme they could claim: central
 plus their own state. For a Tamil Nadu citizen that is **901 schemes** (668 central +
 233 state), checked on the device. The citizen never reads a scheme document to find
@@ -101,8 +104,27 @@ That figure was wrong in three separate ways: it mixed a ₹3 lakh *loan ceiling
 every scheme it failed to parse, and it annualised things that were not annual.
 
 The current engine returns a **breakdown that never mixes kinds and never invents a
-figure.** Where an amount cannot be parsed, the scheme is listed without one. There is
-no single headline number, because there is no honest single number to show.
+figure.** Money is separated into five kinds, and each carries the sentence a citizen
+needs in order to read it correctly:
+
+| Kind | What the screen says |
+|---|---|
+| Cash, every year | "Money paid to you every year, while you remain eligible." |
+| Insurance cover | "Not money you receive. It is the most a claim can be worth if you need it." |
+| Subsidy | "A discount, not a payment — you still pay the rest." |
+| In kind | "Equipment, seed, training and other help given directly. No cash value published." |
+| Credit available | "This is a borrowing limit, not income. Interest is charged, and it must be paid back." |
+
+The screen then states the rule outright: *"These are different kinds of help. They are
+not added together, and Sevai will never show you a single total."* Schemes that have
+not published what they pay are counted and named as such — "87 more schemes matched
+you but have not published what they pay" — rather than being dropped or assigned a
+guess.
+
+This is the financial-literacy component of PS 14, delivered where it is actually
+needed. A citizen who has understood that an insurance ceiling is not income, and that
+a credit limit must be repaid, has learned the distinction that predatory lending
+depends on them not knowing.
 
 The same principle governs matching. v1 returned 137 of 233 schemes for a typical
 profile — a phone book, not a feed — because income limits existed on only 37 schemes
@@ -138,8 +160,9 @@ what was searched for, not who searched.
 | Capability | How it works |
 |---|---|
 | Scheme matching | Faceted eligibility engine evaluates a profile against central + home-state schemes on device |
-| Honest money | Amounts broken out by kind — transfer, grant, loan ceiling — never summed, never invented |
-| Conversational onboarding | Seven-question Tamil chat flow, tappable answers rather than typed input |
+| Honest money | Amounts broken out into five kinds, each explained, never summed, never invented |
+| Adaptive onboarding | Opens at seven questions, branches to at most thirteen, tappable answers rather than typed input |
+| Match provenance | The citizen's own answers are printed on each result, so the reasoning can be checked rather than trusted |
 | Near-miss surfacing | Schemes the citizen narrowly fails are shown separately with the failing criterion named |
 | Cross-scheme chaining | Confirmed attributes from one application surface adjacent eligible schemes |
 | Sahayak Mode | PIN-issued, one-hour, audited delegated sessions |
@@ -151,23 +174,27 @@ what was searched for, not who searched.
 
 ## Screenshots
 
-> These captures are from the pre-v2 build and predate the faceted matcher and the
-> honest-money breakdown. The feed capture still shows the summed annual figure that
-> v2 deliberately removed. Fresh captures are pending.
+> **These captures predate the v2 rewrite and do not represent the current build.**
+> The landing page has since been redesigned, the summed annual figure in the feed
+> capture was deliberately removed, and the two headline statistics on the old landing
+> page — "₹4Cr+ claimed" and "12k farmers served" — were invented and have been
+> replaced with live counts from the corpus. They are kept here only until fresh
+> captures are taken; read them as history, not as the product.
 
 ### Conversational onboarding
 
 ![Conversational onboarding](docs/screenshots/onboarding.png)
 
-The profile is collected as a chat in Tamil, one question at a time, with tappable
-answers. Seven questions and the engine has everything it needs.
+The profile is collected as a chat, one question at a time, with tappable answers.
 
 ### Matched scheme feed
 
 ![Scheme feed](docs/screenshots/feed-ta.png)
 
 The result for a farmer in Thanjavur. The citizen searched for nothing — the engine
-evaluated the profile against every scheme they could claim.
+evaluated the profile against every scheme they could claim. The single ₹1.0 Cr annual
+figure shown here is exactly what v2 removed; see
+[Honest money](#honest-money--the-design-decision-that-matters-most-here).
 
 ### Live language switching
 
@@ -231,7 +258,7 @@ downloads, which is what keeps this viable on a 2G connection.
 | Server | Node.js 18+, Express 4 | Thin proxy; holds no citizen state by design |
 | Language model | Claude (`@anthropic-ai/sdk`) via backend proxy | Scheme summarisation, intent extraction, document reading |
 | Speech | ElevenLabs REST, with Web Speech API fallback | Tamil pronunciation quality; degrades rather than fails without a key |
-| Corpus | Sharded JSON, harvested from `myscheme.gov.in` | 4,707 schemes, 36 states & UTs, harvested 6 Aug 2026 |
+| Corpus | Sharded JSON, harvested from `myscheme.gov.in` | 4,707 schemes, 36 states & UTs, harvested 7 Aug 2026 |
 | Harvester | Python + Playwright | Scheme fetch and normalisation into structured facets |
 | Storage | Browser local storage, encrypted | Keeps the identity vault off the server |
 
@@ -294,7 +321,8 @@ This is a hackathon MVP and the boundary should be explicit.
 | Area | Status |
 |---|---|
 | Faceted eligibility engine, scheme matching, near-miss surfacing | Built |
-| Honest money breakdown — kinds never mixed, amounts never invented | Built |
+| Honest money breakdown — five kinds, each explained, never summed, never invented | Built |
+| Adaptive onboarding across all 36 states and UTs | Built |
 | Cross-scheme chaining over precomputed relationships | Built |
 | All-India corpus, sharded by state, harvested from a live source | Built |
 | Sahayak Mode — PIN issue, scoped session, expiry, audit log | Built, with demo PINs rather than production authentication |
@@ -310,10 +338,13 @@ would need. It is specified here, not shipped.
 
 ## Limitations
 
-- The corpus is a snapshot harvested on 6 Aug 2026, not a live feed. No official API
+- The corpus is a snapshot harvested on 7 Aug 2026, not a live feed. No official API
   exists to consume, so it goes stale between harvests.
-- Onboarding offers Tamil Nadu districts only. The corpus is national; the entry flow
-  is not yet.
+- Published amounts are taken as written. Where a scheme publishes a departmental
+  outlay rather than a per-beneficiary figure, the cash line inherits that number, and
+  a maximally-qualifying profile can produce an implausibly large annual total. The
+  breakdown is honest about *kind*; it is only as accurate about *magnitude* as the
+  source text.
 - Sahayak PINs are demonstration values. Production needs real cryptographic session
   issue and server-side revocation.
 - Eligibility facets are derived from published scheme text and do not survive a
@@ -353,7 +384,8 @@ roadmap rather than claimed as done.
 - SMS adapter against a real gateway — the highest-value channel and the largest gap
 - Corpus ingestion from department publications rather than a periodic scrape
 - Cryptographic session issue for Sahayak Mode with server-side revocation
-- Onboarding beyond Tamil Nadu, using the state corpus already shipped
+- Per-beneficiary amount extraction, so a departmental outlay is never read as a
+  personal entitlement
 - Corpus translation, so scheme text is Tamil rather than only the chrome
 - Field testing with village-level workers to validate the delegation model
 
