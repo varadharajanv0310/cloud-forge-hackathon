@@ -24,7 +24,10 @@ const seedIfEmpty = () => {
   if (existing.length === 0) {
     saveApplications([
       {
-        scheme_id: 'pmay-gramin',
+        // 'pmay-gramin' in v1. The v2 corpus keys this scheme 'pmay-g', so the
+        // old id resolved to nothing and the seeded row rendered as "Scheme
+        // details unavailable" — on the one screen built to show the timeline.
+        scheme_id: 'pmay-g',
         submitted_at: Date.now() - 5 * 24 * 60 * 60 * 1000,
         status: 'rejected',
         reject_reason: null, // uses default Tamil/English copy

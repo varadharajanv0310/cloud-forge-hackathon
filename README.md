@@ -214,15 +214,24 @@ schemes they could claim and sorted what came back.
 The same screen in English. Interface copy, headings and navigation switch in place.
 Scheme titles come from the corpus and remain English — see [Limitations](#limitations).
 
-### Sahayak Mode and application tracking
+### Sahayak Mode — delegated access
 
-Not captured. Both screens render against design tokens that are referenced throughout
-the components but never defined in `tailwind.config.js` or `index.css` — `bg-canvas`,
-`surface-plate`, `btn-primary`, `u-meta` and roughly fifteen others. The markup and
-logic are correct; the styling silently resolves to nothing, which is most visible on
-`SahayakMode`, whose full-screen overlay renders transparently over the page behind it.
-Captures are held back until that is fixed rather than shipped misleading. See
-[Known defects](#known-defects).
+![Sahayak session](docs/screenshots/sahayak-session.png)
+
+A helper enters the citizen's PIN, then loads exactly one beneficiary by code. The
+session lasts an hour and expires on its own; every action taken inside it is written
+to an audit log the citizen can review. The PIN and the codes are printed on screen
+because this is a hackathon build — production would issue them cryptographically.
+
+### Application tracking
+
+![Applications](docs/screenshots/applications.png)
+
+A rejected application, with the reason named and the remediation path shown rather
+than a dead end. Two details carry the argument: the benefit is split into a one-time
+payment and a separately-framed credit line — *"credit available — to be repaid"* —
+and the panel below shows the SMS a citizen would receive, which is the channel the
+whole design is aimed at.
 
 ## Architecture
 
@@ -334,31 +343,32 @@ This is a hackathon MVP and the boundary should be explicit.
 Multi-channel reach is central to the concept and the first thing a real deployment
 would need. It is specified here, not shipped.
 
-## Known defects
+## Two defects found and fixed while recapturing
 
-Found while recapturing screenshots against the running build. Both are open.
+Both were invisible in code review and only showed up by driving the running app.
 
-**The design tokens the components are written against are not defined.** Roughly
-nineteen classes — `bg-canvas`, `bg-surface`, `bg-surface-sub`, `text-muted`,
-`text-lead`, `text-q`, `text-scheme`, `u-meta`, `u-display`, `u-scheme-name`,
-`btn-primary`, `btn-secondary`, `btn-ghost`, `surface-tray`, `surface-plate`,
-`border-hairline`, `ring-hairline`, `amber-banner`, `rounded-well` — are used across
-almost every component but exist in neither `tailwind.config.js` nor `index.css`.
-Tailwind emits nothing for an unknown utility and reports no error, so the pages that
-lean hardest on them degrade silently. `Landing` and the result screen are unaffected
-and render as designed; `SahayakMode`, `Applications`, `Profile` and `SchemeDetail`
-are visibly degraded. The sharpest symptom is that `bg-canvas` — the background on
-three full-screen overlays, including Sahayak Mode — computes to `rgba(0,0,0,0)`, so
-those overlays are transparent and the page behind shows through. `BottomNav` is
-transparent for the same reason, which is why feed content runs under the navigation
-bar. The colour exists in the config under a different name (`page`), so the smallest
-correct fix is to define the missing tokens rather than to rename usages.
+**The components were written against design tokens that were never defined.**
+`bg-canvas`, `bg-surface`, `text-muted`, `text-q`, `u-meta`, `u-display`,
+`btn-primary`, `surface-plate`, `border-hairline`, `rounded-well` and roughly a dozen
+more appear throughout the components but existed in neither `tailwind.config.js` nor
+`index.css`. The two files had drifted apart: the components use the vocabulary in
+`DESIGN.md`, while `index.css` shipped the later `Sevai.dc.html` naming (`page`,
+`white`, the ink ramp, `rule-*`). Tailwind emits nothing for an unknown utility and
+reports no error, so this failed in total silence.
 
-**The seeded demo application points at a scheme that no longer exists.** The
-Applications screen ships one pre-seeded record referencing `pmay-gramin`, an ID from
-the v1 Tamil Nadu corpus. The v2 all-India corpus is keyed differently, so the record
-resolves to "Scheme details unavailable" and the status timeline renders against a
-missing scheme.
+`Landing` and the result screen barely use the missing names and always looked
+correct, which is what kept it hidden. `SahayakMode` uses fifteen of them: its
+`bg-canvas` full-screen overlay computed to `rgba(0,0,0,0)`, so it rendered
+transparently over the page behind it — on the feature this README calls the one the
+design turns on. The fix defines the missing names against the **shipped** values
+rather than reintroducing `DESIGN.md`'s palette, so the app keeps one visual language
+instead of two near-miss greys.
+
+**The seeded demo application pointed at a scheme ID that no longer exists.** The
+Applications screen seeds one rejected record so the timeline and the resubmit path
+can be shown. It referenced `pmay-gramin`; the v2 corpus keys that scheme `pmay-g`, so
+it resolved to "Scheme details unavailable" on the one screen built to demonstrate the
+timeline.
 
 ## Limitations
 
