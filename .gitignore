@@ -20,3 +20,7 @@ server/scraper/scrape_progress.json
 # tooling, not project source.
 .agents/
 .claude/skills/
+
+# Agent tooling config, same reasoning as .agents/ above — belongs to the
+# editor, not the project.
+.codex/
